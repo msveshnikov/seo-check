@@ -82,7 +82,7 @@ function App() {
                                         <Routes>
                                             <Route path="/" element={<Landing />} />
                                             <Route path="/research" element={<Landing />} />
-                                            
+
                                             <Route path="/privacy" element={<Privacy />} />
                                             <Route path="/terms" element={<Terms />} />
                                             <Route path="/login" element={<Login />} />
