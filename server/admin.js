@@ -1,6 +1,5 @@
 import { authenticateToken, isAdmin } from './middleware/auth.js';
 import User from './models/User.js';
-import Presentation from './models/Presentation.js';
 import Feedback from './models/Feedback.js';
 
 const adminRoutes = (app) => {
