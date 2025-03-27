@@ -18,7 +18,8 @@ import {
 } from '@chakra-ui/react';
 import { HamburgerIcon, CloseIcon, ChevronDownIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import logo from './assets/logo.png';
+// Assuming logo is image.png in the public folder
+// import logo from './assets/logo.png'; // Original incorrect path
 import { UserContext } from './App';
 
 export default function Navbar() {
@@ -38,15 +39,20 @@ export default function Navbar() {
         navigate('/');
     };
 
+    // Close mobile menu when a navigation item is clicked
     const handleNavClick = () => {
         if (isOpen) onToggle();
     };
 
+    // Define navigation items
     const NAV_ITEMS = [
+        { label: 'Docs', href: '/docs', requiresAuth: false }, // Added Docs link
         { label: 'Feedback', href: '/feedback', requiresAuth: false },
+        // Conditionally add Admin link if user is logged in and is admin
         ...(user?.isAdmin ? [{ label: 'Admin', href: '/admin', requiresAuth: true }] : [])
     ];
 
+    // Filter items based on authentication status (only relevant for Admin here)
     const filteredNavItems = NAV_ITEMS.filter((item) => !item.requiresAuth || user?.email);
 
     return (
@@ -63,11 +69,13 @@ export default function Navbar() {
                 align="center"
                 boxShadow="sm"
             >
+                {/* Mobile Hamburger Menu */}
                 <Flex
                     flex={{ base: 1, md: 'auto' }}
                     ml={{ base: -2 }}
                     display={{ base: 'flex', md: 'none' }}
                 >
+                    {/* Show hamburger only if there are nav items to display */}
                     {filteredNavItems.length > 0 && (
                         <IconButton
                             onClick={onToggle}
@@ -79,19 +87,24 @@ export default function Navbar() {
                         />
                     )}
                 </Flex>
+
+                {/* Logo and Desktop Navigation */}
                 <Flex flex={{ base: 1 }} justify={{ base: 'center', md: 'start' }} align="center">
                     <Image
-                        src={logo}
-                        alt="AutoResearch.pro Logo"
+                        src="/image.png" // Updated path to public folder
+                        alt="Seocheck.pro Logo" // Updated alt text
                         h="40px"
                         mr={3}
                         cursor="pointer"
                         onClick={handleLogoClick}
                     />
+                    {/* Desktop Navigation Links */}
                     <Flex display={{ base: 'none', md: 'flex' }} ml={10}>
                         <DesktopNav navItems={filteredNavItems} />
                     </Flex>
                 </Flex>
+
+                {/* Authentication Buttons */}
                 <Stack flex={{ base: 1, md: 0 }} justify="flex-end" direction="row" spacing={6}>
                     {user?.email ? (
                         <>
@@ -101,13 +114,13 @@ export default function Navbar() {
                                 variant="ghost"
                                 fontSize="sm"
                                 fontWeight={400}
-                                onClick={handleNavClick}
+                                onClick={handleNavClick} // Close mobile menu on click
                             >
                                 Profile
                             </Button>
                             <Button
                                 onClick={() => {
-                                    handleNavClick();
+                                    handleNavClick(); // Close mobile menu on click
                                     handleLogout();
                                 }}
                                 colorScheme="red"
@@ -124,7 +137,7 @@ export default function Navbar() {
                                 as={RouterLink}
                                 to="/login"
                                 variant="ghost"
-                                onClick={handleNavClick}
+                                onClick={handleNavClick} // Close mobile menu on click
                             >
                                 Login
                             </Button>
@@ -135,10 +148,10 @@ export default function Navbar() {
                                 fontSize="sm"
                                 fontWeight={600}
                                 color="white"
-                                bg="#3498DB"
-                                onClick={handleNavClick}
+                                bg="#3498DB" // Specific blue color
+                                onClick={handleNavClick} // Close mobile menu on click
                                 _hover={{
-                                    bg: '#2980B9'
+                                    bg: '#2980B9' // Darker blue on hover
                                 }}
                             >
                                 Sign Up
@@ -147,8 +160,11 @@ export default function Navbar() {
                     )}
                 </Stack>
             </Flex>
+
+            {/* Mobile Navigation Menu */}
             {filteredNavItems.length > 0 && (
                 <Collapse in={isOpen} animateOpacity>
+                    {/* Pass onNavClick to close menu when item is clicked */}
                     <MobileNav navItems={filteredNavItems} onNavClick={handleNavClick} />
                 </Collapse>
             )}
@@ -156,6 +172,7 @@ export default function Navbar() {
     );
 }
 
+// --- Desktop Navigation Component ---
 const DesktopNav = ({ navItems }) => {
     const linkColor = useColorModeValue('gray.600', 'gray.200');
     const linkHoverColor = useColorModeValue('gray.800', 'white');
@@ -182,6 +199,7 @@ const DesktopNav = ({ navItems }) => {
                                 {navItem.label}
                             </Link>
                         </PopoverTrigger>
+                        {/* Handles sub-navigation items if any */}
                         {navItem.children && (
                             <PopoverContent
                                 border={0}
@@ -205,6 +223,7 @@ const DesktopNav = ({ navItems }) => {
     );
 };
 
+// --- Desktop Sub-Navigation Item Component (if needed) ---
 const DesktopSubNav = ({ label, href, subLabel }) => {
     return (
         <Link
@@ -214,13 +233,13 @@ const DesktopSubNav = ({ label, href, subLabel }) => {
             display="block"
             p={2}
             rounded="md"
-            _hover={{ bg: useColorModeValue('blue.50', 'gray.900') }}
+            _hover={{ bg: useColorModeValue('blue.50', 'gray.900') }} // Highlight on hover
         >
             <Stack direction="row" align="center">
                 <Box>
                     <Text
                         transition="all .3s ease"
-                        _groupHover={{ color: '#3498DB' }}
+                        _groupHover={{ color: '#3498DB' }} // Color change on hover
                         fontWeight={500}
                     >
                         {label}
@@ -231,7 +250,7 @@ const DesktopSubNav = ({ label, href, subLabel }) => {
                     transition="all .3s ease"
                     transform="translateX(-10px)"
                     opacity={0}
-                    _groupHover={{ opacity: 1, transform: 'translateX(0)' }}
+                    _groupHover={{ opacity: 1, transform: 'translateX(0)' }} // Animate chevron on hover
                     justify="flex-end"
                     align="center"
                     flex={1}
@@ -243,25 +262,32 @@ const DesktopSubNav = ({ label, href, subLabel }) => {
     );
 };
 
+// --- Mobile Navigation Component ---
 const MobileNav = ({ navItems, onNavClick }) => {
     return (
         <Stack bg={useColorModeValue('white', 'gray.800')} p={4} display={{ md: 'none' }}>
             {navItems.map((navItem) => (
+                // Pass onNavClick to each item
                 <MobileNavItem key={navItem.label} {...navItem} onNavClick={onNavClick} />
             ))}
         </Stack>
     );
 };
 
+// --- Mobile Navigation Item Component ---
 const MobileNavItem = ({ label, children, href, onNavClick }) => {
     const { isOpen, onToggle } = useDisclosure();
 
+    // If item has children, toggle sub-menu; otherwise, trigger navigation and close main menu
+    const handleClick = children ? onToggle : onNavClick;
+
     return (
-        <Stack spacing={4} onClick={children ? onToggle : onNavClick}>
+        <Stack spacing={4} onClick={handleClick}>
             <Flex
                 py={2}
                 as={RouterLink}
-                to={href ?? '#'}
+                // Only navigate if it's a direct link (not just a toggle for children)
+                to={!children ? href ?? '#' : undefined}
                 justify="space-between"
                 align="center"
                 _hover={{
@@ -271,6 +297,7 @@ const MobileNavItem = ({ label, children, href, onNavClick }) => {
                 <Text fontWeight={600} color={useColorModeValue('gray.600', 'gray.200')}>
                     {label}
                 </Text>
+                {/* Chevron icon for items with children */}
                 {children && (
                     <Icon
                         as={ChevronDownIcon}
@@ -281,6 +308,7 @@ const MobileNavItem = ({ label, children, href, onNavClick }) => {
                     />
                 )}
             </Flex>
+            {/* Collapsible Sub-menu for children */}
             <Collapse in={isOpen} animateOpacity style={{ marginTop: '0!important' }}>
                 <Stack
                     mt={2}
@@ -297,7 +325,7 @@ const MobileNavItem = ({ label, children, href, onNavClick }) => {
                                 py={2}
                                 as={RouterLink}
                                 to={child.href}
-                                onClick={onNavClick}
+                                onClick={onNavClick} // Ensure sub-item clicks also close the main menu
                             >
                                 {child.label}
                             </Link>
