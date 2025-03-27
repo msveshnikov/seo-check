@@ -1,4 +1,4 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import {
     Box,
     Button,
@@ -9,31 +9,65 @@ import {
     Heading,
     Text,
     useToast,
-    Select,
     Container,
     Card,
     CardBody,
     SimpleGrid,
     Stack,
     Badge,
-    Link
+    Link,
+    List,
+    ListItem,
+    ListIcon,
+    Spinner,
+    Alert,
+    AlertIcon,
+    Divider,
+    Flex,
+    Spacer
 } from '@chakra-ui/react';
+import { MdCheckCircle, MdLink, MdDateRange } from 'react-icons/md'; // Example icons
 import { API_URL, UserContext } from './App';
+import { Link as RouterLink } from 'react-router-dom'; // If linking to internal report pages
 
 const Profile = () => {
     const { user, setUser } = useContext(UserContext);
     const toast = useToast();
     const [isLoading, setIsLoading] = useState(false);
+    const [reports, setReports] = useState([]);
+    const [reportsLoading, setReportsLoading] = useState(true);
+    const [reportsError, setReportsError] = useState(null);
 
-    const handleChange = (section, field, value) => {
-        setUser((prev) => ({
-            ...prev,
-            [section]: {
-                ...(prev[section] || {}),
-                [field]: value
+    // Fetch report history when component mounts or user changes
+    useEffect(() => {
+        const fetchReports = async () => {
+            if (!user) return; // Don't fetch if user isn't loaded
+
+            setReportsLoading(true);
+            setReportsError(null);
+            try {
+                const token = localStorage.getItem('token');
+                const response = await fetch(`${API_URL}/api/reports/history`, {
+                    // Assuming this endpoint exists
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error('Failed to fetch report history');
+                }
+                const data = await response.json();
+                setReports(data);
+            } catch (error) {
+                console.error('Error fetching report history:', error);
+                setReportsError(error.message || 'Could not load reports.');
+            } finally {
+                setReportsLoading(false);
             }
-        }));
-    };
+        };
+
+        fetchReports();
+    }, [user]); // Re-fetch if user context changes
 
     const handleBasicChange = (field, value) => {
         setUser((prev) => ({
@@ -55,33 +89,30 @@ const Profile = () => {
                 },
                 body: JSON.stringify({
                     firstName: user?.firstName,
-                    lastName: user?.lastName,
-                    researchPreferences: user?.researchPreferences,
-                    presentationSettings: user?.presentationSettings,
-                    preferences: user?.preferences
+                    lastName: user?.lastName
+                    // Only send relevant fields
                 })
             });
+            const data = await response.json();
             if (response.ok) {
                 toast({
                     title: 'Success',
                     description: 'Profile updated successfully',
                     status: 'success',
-                    duration: 3000
+                    duration: 3000,
+                    isClosable: true
                 });
+                setUser((prev) => ({ ...prev, ...data })); // Update user context with potentially updated data from backend
             } else {
-                toast({
-                    title: 'Error',
-                    description: 'Error updating profile',
-                    status: 'error',
-                    duration: 3000
-                });
+                throw new Error(data.message || 'Error updating profile');
             }
-        } catch {
+        } catch (error) {
             toast({
                 title: 'Error',
-                description: 'Error updating profile',
+                description: error.message || 'Error updating profile',
                 status: 'error',
-                duration: 3000
+                duration: 5000,
+                isClosable: true
             });
         } finally {
             setIsLoading(false);
@@ -90,13 +121,18 @@ const Profile = () => {
 
     return (
         <Container maxW="container.lg" py={8}>
-            <Card>
+            <Card shadow="md" borderWidth="1px">
                 <CardBody>
-                    <VStack spacing={8}>
-                        <Box w="100%">
-                            <Stack direction="row" justify="space-between" align="center" mb={4}>
-                                <Text fontSize="xl">Subscription</Text>
+                    <VStack spacing={8} align="stretch">
+                        {/* Subscription Section */}
+                        <Box>
+                            <Flex justify="space-between" align="center" mb={4}>
+                                <Heading size="md">Subscription</Heading>
                                 <Badge
+                                    fontSize="md"
+                                    px={3}
+                                    py={1}
+                                    borderRadius="full"
                                     colorScheme={
                                         user?.subscriptionStatus === 'active' ||
                                         user?.subscriptionStatus === 'trialing'
@@ -109,13 +145,13 @@ const Profile = () => {
                                         ? 'Premium'
                                         : 'Free'}
                                 </Badge>
-                            </Stack>
+                            </Flex>
                             {!(
                                 user?.subscriptionStatus === 'active' ||
                                 user?.subscriptionStatus === 'trialing'
                             ) ? (
                                 <Link href="https://buy.stripe.com/00gdSPetHeEfgUg9AI" isExternal>
-                                    <Button disabled={!user} colorScheme="orange">
+                                    <Button disabled={!user} colorScheme="orange" size="sm">
                                         Upgrade to Premium ($7.99/mo)
                                     </Button>
                                 </Link>
@@ -126,18 +162,22 @@ const Profile = () => {
                                         user?.email
                                     }
                                     target="_blank"
-                                    rel="noopener"
+                                    rel="noopener noreferrer"
                                 >
-                                    <Button colorScheme="purple" mt={1} ml={1}>
-                                        Customer Portal
+                                    <Button colorScheme="purple" size="sm">
+                                        Manage Billing
                                     </Button>
                                 </Link>
                             )}
                         </Box>
-                        <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+
+                        <Divider />
+
+                        {/* Profile Update Form */}
+                        <form onSubmit={handleSubmit}>
                             <VStack spacing={6} align="stretch">
-                                <Heading size="md">Basic Information</Heading>
-                                <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+                                <Heading size="md">Profile Information</Heading>
+                                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
                                     <FormControl>
                                         <FormLabel>First Name</FormLabel>
                                         <Input
@@ -145,6 +185,7 @@ const Profile = () => {
                                             onChange={(e) =>
                                                 handleBasicChange('firstName', e.target.value)
                                             }
+                                            placeholder="Enter your first name"
                                         />
                                     </FormControl>
                                     <FormControl>
@@ -154,125 +195,74 @@ const Profile = () => {
                                             onChange={(e) =>
                                                 handleBasicChange('lastName', e.target.value)
                                             }
+                                            placeholder="Enter your last name"
                                         />
                                     </FormControl>
-                                    <FormControl>
-                                        <FormLabel>Email</FormLabel>
-                                        <Input value={user?.email || ''} isReadOnly />
-                                    </FormControl>
                                 </SimpleGrid>
-                            </VStack>
-                            <VStack spacing={6} align="stretch" mt={8}>
-                                <Heading size="md">Research Preferences</Heading>
-                                <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-                                    <FormControl>
-                                        <FormLabel>Field of Research</FormLabel>
-                                        <Input
-                                            value={user?.researchPreferences?.field || ''}
-                                            onChange={(e) =>
-                                                handleChange(
-                                                    'researchPreferences',
-                                                    'field',
-                                                    e.target.value
-                                                )
-                                            }
-                                        />
-                                    </FormControl>
-                                    <FormControl>
-                                        <FormLabel>Preferred Data Sources</FormLabel>
-                                        <Input
-                                            value={user?.researchPreferences?.dataSources || ''}
-                                            onChange={(e) =>
-                                                handleChange(
-                                                    'researchPreferences',
-                                                    'dataSources',
-                                                    e.target.value
-                                                )
-                                            }
-                                        />
-                                    </FormControl>
-                                    <FormControl>
-                                        <FormLabel>Level of AI Assistance</FormLabel>
-                                        <Select
-                                            value={user?.researchPreferences?.aiAssistance || ''}
-                                            onChange={(e) =>
-                                                handleChange(
-                                                    'researchPreferences',
-                                                    'aiAssistance',
-                                                    e.target.value
-                                                )
-                                            }
-                                        >
-                                            <option value="">Select level</option>
-                                            <option value="minimal">Minimal</option>
-                                            <option value="moderate">Moderate</option>
-                                            <option value="full">Full</option>
-                                        </Select>
-                                    </FormControl>
-                                </SimpleGrid>
-                            </VStack>
-                            <VStack spacing={6} align="stretch" mt={8}>
-                                <Heading size="md">Presentation Settings</Heading>
-                                <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-                                    <FormControl>
-                                        <FormLabel>Default Slide Layout</FormLabel>
-                                        <Select
-                                            value={user?.presentationSettings?.slideLayout || ''}
-                                            onChange={(e) =>
-                                                handleChange(
-                                                    'presentationSettings',
-                                                    'slideLayout',
-                                                    e.target.value
-                                                )
-                                            }
-                                        >
-                                            <option value="">Select layout</option>
-                                            <option value="Default">Default</option>
-                                            <option value="Title Slide">Title Slide</option>
-                                            <option value="Bullet List">Bullet List</option>
-                                            <option value="Image Focused">Image Focused</option>
-                                        </Select>
-                                    </FormControl>
-                                    <FormControl>
-                                        <FormLabel>Theme</FormLabel>
-                                        <Select
-                                            value={user?.presentationSettings?.theme || ''}
-                                            onChange={(e) =>
-                                                handleChange(
-                                                    'presentationSettings',
-                                                    'theme',
-                                                    e.target.value
-                                                )
-                                            }
-                                        >
-                                            <option value="">Select theme</option>
-                                            <option value="Light">Light</option>
-                                            <option value="Dark">Dark</option>
-                                            <option value="Auto">Auto</option>
-                                            <option value="Primary Blue">Primary Blue</option>
-                                            <option value="Secondary Blue">Secondary Blue</option>
-                                            <option value="Vibrant Accent">Vibrant Accent</option>
-                                            <option value="Olive Green">Olive Green</option>
-                                            <option value="Sunset">Sunset</option>
-                                        </Select>
-                                    </FormControl>
-                                </SimpleGrid>
-                            </VStack>
-
-                            <Box mt={8}>
+                                <FormControl>
+                                    <FormLabel>Email</FormLabel>
+                                    <Input value={user?.email || ''} isReadOnly disabled />
+                                </FormControl>
                                 <Button
                                     type="submit"
                                     colorScheme="blue"
                                     isLoading={isLoading}
-                                    width="100%"
+                                    alignSelf="flex-start"
                                 >
-                                    Save
+                                    Save Changes
                                 </Button>
-                            </Box>
+                            </VStack>
                         </form>
-                        <VStack spacing={4} width="100%" mt={8}>
-                            <Heading size="md">Presentations</Heading>
-                            <PresentationList my />
+
+                        <Divider />
+
+                        {/* Report History Section */}
+                        <VStack spacing={4} align="stretch">
+                            <Heading size="md">Analysis History</Heading>
+                            {reportsLoading ? (
+                                <Flex justify="center" align="center" minH="100px">
+                                    <Spinner size="lg" />
+                                </Flex>
+                            ) : reportsError ? (
+                                <Alert status="error">
+                                    <AlertIcon />
+                                    {reportsError}
+                                </Alert>
+                            ) : reports.length > 0 ? (
+                                <List spacing={3}>
+                                    {reports.map((report) => (
+                                        <ListItem
+                                            key={report._id}
+                                            p={3}
+                                            borderWidth="1px"
+                                            borderRadius="md"
+                                            _hover={{ bg: 'gray.50' }}
+                                        >
+                                            <Flex align="center" wrap="wrap">
+                                                <ListIcon as={MdLink} color="blue.500" />
+                                                <Text fontWeight="medium" mr={2}>
+                                                    {report.url || 'N/A'}
+                                                </Text>
+                                                <Spacer />
+                                                <Flex align="center" color="gray.500" fontSize="sm">
+                                                    <ListIcon as={MdDateRange} m={0} mr={1} />
+                                                    <Text>
+                                                        {new Date(
+                                                            report.createdAt
+                                                        ).toLocaleDateString()}
+                                                    </Text>
+                                                    {/* Optional: Link to a detailed report page */}
+                                                    {/* <Button as={RouterLink} to={`/reports/${report._id}`} size="xs" ml={4}>View</Button> */}
+                                                </Flex>
+                                            </Flex>
+                                            {/* Optional: Display a summary score or status */}
+                                            {/* <Text fontSize="sm" color="gray.600" mt={1}>Score: {report.score || 'N/A'}</Text> */}
+                                        </ListItem>
+                                    ))}
+                                </List>
+                            ) : (
+                                <Text color="gray.500">No analysis reports found.</Text>
+                            )}
                         </VStack>
                     </VStack>
                 </CardBody>

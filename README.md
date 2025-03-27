@@ -1,4 +1,4 @@
-# Seocheck.pro
+# Seocheck.my
 
 SEO analyzer - user enters site URl and there are recommendations about meta tags, title, load times
 etc
@@ -7,7 +7,7 @@ etc
 
 # PROD
 
-https://seocheck.pro
+https://seocheck.my
 
 ## Overview
 

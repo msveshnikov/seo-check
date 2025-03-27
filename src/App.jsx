@@ -1,4 +1,4 @@
-import { ChakraProvider, Box, Container, VStack, extendTheme } from '@chakra-ui/react';
+import { ChakraProvider, Box, Container, extendTheme, Spinner, Center } from '@chakra-ui/react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Landing } from './Landing';
 import { lazy, Suspense, createContext, useEffect, useState, useContext } from 'react';
@@ -17,10 +17,10 @@ import { BottomNavigationBar } from './BottomNavigationBar';
 const Admin = lazy(() => import('./Admin'));
 const Feedback = lazy(() => import('./Feedback'));
 const Docs = lazy(() => import('./Docs'));
-const Dashboard = lazy(() => import('./Dashboard')); // Assuming Dashboard.jsx will be created
+const Dashboard = lazy(() => import('./Dashboard')); // Dashboard route is ready
 
 // API URL Configuration
-export const API_URL = import.meta.env.DEV ? 'http://localhost:3000' : 'https://seocheck.pro'; // Updated API URL
+export const API_URL = import.meta.env.DEV ? 'http://localhost:3000' : 'https://seocheck.pro';
 
 // User Context
 export const UserContext = createContext(null);
@@ -58,17 +58,20 @@ const theme = extendTheme({
     }
 });
 
+// Loading Component
+const LoadingIndicator = () => (
+    <Center height="80vh">
+        <Spinner size="xl" />
+    </Center>
+);
+
 // Protected Route Component
 const ProtectedRoute = ({ allowedRoles }) => {
     const { user, isLoading } = useContext(UserContext);
 
     if (isLoading) {
-        // Optional: Show a loading indicator while user state is being determined
-        return (
-            <Box display="flex" justifyContent="center" alignItems="center" height="80vh">
-                Loading...
-            </Box>
-        );
+        // Show loading indicator while user state is being determined
+        return <LoadingIndicator />;
     }
 
     if (!user) {
@@ -76,19 +79,21 @@ const ProtectedRoute = ({ allowedRoles }) => {
         return <Navigate to="/login" replace />;
     }
 
+    // Check roles only if allowedRoles is provided
     if (allowedRoles && !allowedRoles.some((role) => (role === 'admin' ? user.isAdmin : true))) {
         // Logged in but doesn't have the required role (e.g., admin)
-        return <Navigate to="/" replace />; // Redirect to home or an 'Unauthorized' page
+        // Redirect non-admins trying to access admin routes
+        return <Navigate to="/dashboard" replace />; // Redirect to dashboard or home for unauthorized access
     }
 
-    // Logged in and has permission
+    // Logged in and has permission (or no specific roles required)
     return <Outlet />;
 };
 
 // Main App Component
 function App() {
     const [user, setUser] = useState(null);
-    const [isLoading, setIsLoading] = useState(true); // Add loading state
+    const [isLoading, setIsLoading] = useState(true); // Loading state for initial auth check
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -104,17 +109,17 @@ function App() {
                     }
                     // If token is invalid/expired, remove it
                     localStorage.removeItem('token');
-                    throw new Error('Invalid token');
+                    throw new Error('Invalid or expired token');
                 })
                 .then((data) => {
-                    setUser(data);
+                    setUser(data); // Set user data on successful fetch
                 })
                 .catch((error) => {
-                    console.error('Failed to fetch profile:', error);
-                    setUser(null); // Ensure user is null if fetch fails
+                    console.error('Failed to fetch profile:', error.message);
+                    setUser(null); // Ensure user is null if fetch fails or token is invalid
                 })
                 .finally(() => {
-                    setIsLoading(false); // Set loading to false after fetch attempt
+                    setIsLoading(false); // Set loading to false after fetch attempt completes
                 });
         } else {
             setIsLoading(false); // No token, so not loading user data
@@ -124,36 +129,15 @@ function App() {
     return (
         <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
             <ChakraProvider theme={theme}>
-                <Suspense
-                    fallback={
-                        <Box
-                            display="flex"
-                            justifyContent="center"
-                            alignItems="center"
-                            height="100vh"
-                            bg="background.50"
-                        >
-                            Loading...
-                        </Box>
-                    }
-                >
+                <Suspense fallback={<LoadingIndicator />}>
                     <UserContext.Provider value={{ user, setUser, isLoading }}>
                         <Router>
-                            {/* Use future flags if needed, or remove if using React Router v6 */}
-                            {/* <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}> */}
                             <Box pb={{ base: '70px', md: '0' }} minH="100vh" bg="background.50">
-                                {' '}
-                                {/* Adjust padding for BottomNav */}
                                 <Navbar />
                                 <Container maxW="container.xl" pt={8} pb={16}>
-                                    {' '}
-                                    {/* Add padding top/bottom */}
-                                    {/* Removed VStack spacing={8} for more flexible layout within routes */}
                                     <Routes>
                                         {/* Public Routes */}
                                         <Route path="/" element={<Landing />} />
-                                        {/* <Route path="/research" element={<Landing />} /> */}{' '}
-                                        {/* Removed duplicate */}
                                         <Route path="/privacy" element={<Privacy />} />
                                         <Route path="/terms" element={<Terms />} />
                                         <Route path="/login" element={<Login />} />
@@ -162,25 +146,25 @@ function App() {
                                         <Route path="/reset-password/:token" element={<Reset />} />
                                         <Route path="/feedback" element={<Feedback />} />
                                         <Route path="/docs/*" element={<Docs />} />
-                                        {/* Protected Routes */}
+
+                                        {/* Protected Routes (Require Login) */}
                                         <Route element={<ProtectedRoute />}>
                                             <Route path="/profile" element={<Profile />} />
-                                            {/* Add Dashboard route when component is ready */}
                                             <Route path="/dashboard" element={<Dashboard />} />
+                                            {/* Add other general protected routes here as needed */}
                                         </Route>
-                                        {/* Admin Protected Route */}
-                                        <Route
-                                            element={<ProtectedRoute allowedRoles={['admin']} />}
-                                        >
+
+                                        {/* Admin Protected Route (Require Login + Admin Role) */}
+                                        <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
                                             <Route path="/admin" element={<Admin />} />
                                         </Route>
-                                        {/* Fallback Route */}
+
+                                        {/* Fallback Route - Redirects unknown paths to Landing */}
                                         <Route path="*" element={<Navigate to="/" replace />} />
                                     </Routes>
                                 </Container>
                                 <BottomNavigationBar />
                             </Box>
-                            {/* </Router> */}
                         </Router>
                     </UserContext.Provider>
                 </Suspense>
