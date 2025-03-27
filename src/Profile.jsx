@@ -13,7 +13,6 @@ import {
     Card,
     CardBody,
     SimpleGrid,
-    Stack,
     Badge,
     Link,
     List,
@@ -26,9 +25,8 @@ import {
     Flex,
     Spacer
 } from '@chakra-ui/react';
-import { MdCheckCircle, MdLink, MdDateRange } from 'react-icons/md'; // Example icons
+import { MdLink, MdDateRange } from 'react-icons/md'; // Example icons
 import { API_URL, UserContext } from './App';
-import { Link as RouterLink } from 'react-router-dom'; // If linking to internal report pages
 
 const Profile = () => {
     const { user, setUser } = useContext(UserContext);

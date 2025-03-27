@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
-import { getIpFromRequest } from '../index.js';
+import { getIpFromRequest } from '../utils.js';
 
 export const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];

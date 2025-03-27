@@ -58,13 +58,19 @@ const fetchAndParseUrl = async (url) => {
         // Check content length if available and enforce limit
         const contentLength = response.headers.get('content-length');
         if (contentLength && parseInt(contentLength, 10) > MAX_CONTENT_SIZE) {
-            return { error: `Content exceeds size limit of ${MAX_CONTENT_SIZE} bytes`, status: 413 }; // Payload Too Large
+            return {
+                error: `Content exceeds size limit of ${MAX_CONTENT_SIZE} bytes`,
+                status: 413
+            }; // Payload Too Large
         }
 
         const html = await response.text();
         // Check actual size again after fetching
         if (Buffer.byteLength(html, 'utf8') > MAX_CONTENT_SIZE) {
-             return { error: `Content exceeds size limit of ${MAX_CONTENT_SIZE} bytes`, status: 413 };
+            return {
+                error: `Content exceeds size limit of ${MAX_CONTENT_SIZE} bytes`,
+                status: 413
+            };
         }
 
         const $ = load(html);
@@ -72,10 +78,17 @@ const fetchAndParseUrl = async (url) => {
     } catch (error) {
         clearTimeout(timeoutId);
         if (error.name === 'AbortError') {
-            return { error: `Request timed out after ${FETCH_TIMEOUT / 1000} seconds`, status: 408 }; // Request Timeout
+            return {
+                error: `Request timed out after ${FETCH_TIMEOUT / 1000} seconds`,
+                status: 408
+            }; // Request Timeout
         }
-         if (error.type === 'max-size') { // Example for node-fetch size limit
-            return { error: `Content exceeds size limit of ${MAX_CONTENT_SIZE} bytes`, status: 413 };
+        if (error.type === 'max-size') {
+            // Example for node-fetch size limit
+            return {
+                error: `Content exceeds size limit of ${MAX_CONTENT_SIZE} bytes`,
+                status: 413
+            };
         }
         console.error(`Fetch error for ${url}:`, error);
         return { error: `Failed to fetch URL: ${error.message}`, status: 500 }; // Internal Server Error or appropriate status
@@ -106,7 +119,10 @@ const checkRobotsTxt = async (siteUrl) => {
         } else if (response.status === 404) {
             return { exists: false };
         } else {
-            return { exists: false, error: `robots.txt check failed with status: ${response.status}` };
+            return {
+                exists: false,
+                error: `robots.txt check failed with status: ${response.status}`
+            };
         }
     } catch (error) {
         clearTimeout(timeoutId);
@@ -116,7 +132,6 @@ const checkRobotsTxt = async (siteUrl) => {
         return { exists: false, error: `Error checking robots.txt: ${error.message}` };
     }
 };
-
 
 /**
  * Checks for the existence and accessibility of sitemap.xml (common locations).
@@ -151,18 +166,20 @@ const checkSitemap = async (siteUrl, robotsAnalysis) => {
                 return { exists: true, url: sitemapUrl };
             }
             // If HEAD fails or is disallowed, try GET for the primary sitemap.xml
-            if (sitemapUrl === potentialSitemapUrls[potentialSitemapUrls.length - 1] && response.status === 405) {
-                 const getResponse = await fetch(sitemapUrl, {
-                     method: 'GET',
-                     headers: { 'User-Agent': getRandomUserAgent() },
-                     signal: controller.signal,
-                     redirect: 'follow'
-                 });
-                 if (getResponse.ok) {
+            if (
+                sitemapUrl === potentialSitemapUrls[potentialSitemapUrls.length - 1] &&
+                response.status === 405
+            ) {
+                const getResponse = await fetch(sitemapUrl, {
+                    method: 'GET',
+                    headers: { 'User-Agent': getRandomUserAgent() },
+                    signal: controller.signal,
+                    redirect: 'follow'
+                });
+                if (getResponse.ok) {
                     return { exists: true, url: sitemapUrl };
-                 }
+                }
             }
-
         } catch (error) {
             clearTimeout(timeoutId);
             if (error.name === 'AbortError') {
@@ -176,7 +193,6 @@ const checkSitemap = async (siteUrl, robotsAnalysis) => {
 
     return { exists: false, error: 'Sitemap not found in common locations or robots.txt' };
 };
-
 
 // --- Analysis Functions ---
 
@@ -202,7 +218,7 @@ const analyzeMetaTags = ($) => {
             title: ogTitle,
             description: ogDescription,
             image: ogImage,
-            url: ogUrl,
+            url: ogUrl
         },
         twitterCard: { value: twitterCard }
     };
@@ -257,7 +273,7 @@ const analyzeContent = ($, html) => {
     return {
         wordCount,
         // keywordDensity,
-        readabilityScore,
+        readabilityScore
         // Add more content metrics here
     };
 };
@@ -278,7 +294,7 @@ const checkMobileFriendliness = ($) => {
     // More advanced checks could involve analyzing CSS, but that's complex server-side
     return {
         hasViewportMeta: hasViewport,
-        viewportContent: viewport || null,
+        viewportContent: viewport || null
         // Add results from Google Mobile-Friendly Test API if integrated
     };
 };
@@ -296,12 +312,14 @@ const checkSchemaMarkup = ($) => {
             }
         } catch (e) {
             console.warn('Failed to parse JSON-LD schema:', e.message);
-            schemaData.push({ error: 'Failed to parse', content: $(element).html()?.substring(0, 100) + '...' });
+            schemaData.push({
+                error: 'Failed to parse',
+                content: $(element).html()?.substring(0, 100) + '...'
+            });
         }
     });
     return { hasSchema, count: schemaData.length, data: schemaData };
 };
-
 
 // --- Main Analysis Orchestrator ---
 
@@ -316,13 +334,22 @@ export const performSeoAnalysis = async (url) => {
     try {
         siteUrl = new URL(url);
     } catch (e) {
-        return { error: 'Invalid URL provided', status: 400, analysisTimeMs: Date.now() - startTime };
+        return {
+            error: 'Invalid URL provided',
+            status: 400,
+            analysisTimeMs: Date.now() - startTime
+        };
     }
 
     const { html, $, finalUrl, status, error: fetchError } = await fetchAndParseUrl(url);
 
     if (fetchError) {
-        return { url, error: fetchError, status: status || 500, analysisTimeMs: Date.now() - startTime };
+        return {
+            url,
+            error: fetchError,
+            status: status || 500,
+            analysisTimeMs: Date.now() - startTime
+        };
     }
 
     try {
@@ -359,7 +386,7 @@ export const performSeoAnalysis = async (url) => {
                 content: contentAnalysis,
                 mobileFriendly: mobileAnalysis,
                 schemaMarkup: schemaAnalysis,
-                performance: performanceAnalysis, // Add performance results here
+                performance: performanceAnalysis // Add performance results here
                 // Add other checks like links, hreflang etc.
             },
             aiSuggestions: aiSuggestions // Add AI suggestions here
@@ -381,7 +408,6 @@ export const performSeoAnalysis = async (url) => {
         };
     }
 };
-
 
 // --- Router ---
 
@@ -409,7 +435,7 @@ router.post('/analyze', authenticateToken, async (req, res) => {
 
         if (report.error && !report.checks) {
             // If fetching itself failed badly
-             return res.status(report.status || 500).json({ error: report.error, url: report.url });
+            return res.status(report.status || 500).json({ error: report.error, url: report.url });
         }
 
         // TODO: Save report linked to user req.user.id

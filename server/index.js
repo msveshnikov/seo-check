@@ -11,21 +11,29 @@ import morgan from 'morgan';
 import compression from 'compression';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+
+// AI Service Imports
 import { getTextGemini } from './gemini.js';
 import { getTextGrok } from './grok.js';
 import { getTextGpt } from './openai.js';
 import { getTextDeepseek } from './deepseek.js';
+import { getTextClaude } from './claude.js';
+
+// Models
 import User from './models/User.js';
-// Removed Presentation model import
 import Feedback from './models/Feedback.js';
-// Removed imageService import
+// Potential future model: import Report from './models/Report.js';
+
+// Routes
 import userRoutes from './user.js';
 import adminRoutes from './admin.js';
-import searchRoutes from './search.js'; // Assuming search.js exports a router
-import { authenticateToken, authenticateTokenOptional } from './middleware/auth.js';
-// Removed enrichMetadata import from utils.js as it was presentation specific
-import { getTextClaude } from './claude.js';
-// Removed unused fetchSearchResults, searchWebContent from search.js import - assuming search.js handles its own logic internally or via its router
+import searchRoutes from './search.js';
+
+// Middleware
+import { authenticateTokenOptional } from './middleware/auth.js';
+
+// Utilities (Example: Assuming getIpFromRequest moved to utils.js)
+// import { getIpFromRequest } from './utils.js';
 
 dotenv.config();
 
@@ -34,64 +42,52 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const app = express();
 
-app.set('trust proxy', 1);
+app.set('trust proxy', 1); // Trust first proxy for IP address determination
 const port = process.env.PORT || 3000;
+
+// --- Core Middleware ---
 
 // Middleware for conditional JSON parsing (excluding Stripe webhook)
 app.use((req, res, next) => {
     if (req.originalUrl === '/api/stripe-webhook') {
-        next();
+        next(); // Pass raw body for Stripe signature verification
     } else {
-        express.json({ limit: '15mb' })(req, res, next); // Keep generous limit for potential large POSTs? Review if needed.
+        express.json({ limit: '15mb' })(req, res, next); // Adjust limit as needed
     }
 });
-
-// Prometheus metrics middleware
-const metricsMiddleware = promBundle({
-    includeMethod: true,
-    includePath: true,
-    includeStatusCode: true,
-    // TODO: Review if 'model' label is still relevant for SEO checks or needs changing
-    customLabels: { model: 'No' },
-    transformLabels: (labels, req) => {
-        labels.model = req?.body?.model ?? 'No'; // Keep for now, might be used by AI suggestions
-        return labels;
-    }
-});
-app.use(metricsMiddleware);
 
 // Standard middleware
-app.use(cors());
+app.use(cors()); // Enable Cross-Origin Resource Sharing
 app.use(express.static(join(__dirname, '../dist'))); // Serve static files from Vite build output
-app.use(morgan('dev')); // Request logging
-app.use(compression()); // Response compression
+app.use(morgan('dev')); // HTTP request logger
+app.use(compression()); // Compress responses
 
-// Rate limiting
-const limiter = rateLimit({
+// --- Rate Limiting ---
+const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 130 // limit each IP to 130 requests per windowMs
+    max: 130, // Limit each IP to 130 requests per windowMs
+    message: 'Too many requests from this IP, please try again after 15 minutes'
 });
 
 // Apply rate limiter to API routes in production
 if (process.env.NODE_ENV === 'production') {
-    app.use('/api/', limiter);
+    app.use('/api/', apiLimiter);
+    console.log('Rate limiting applied to /api/ routes.');
 }
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI, {}).then(() => {
-    console.log('MongoDB connected successfully.');
-}).catch(err => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1); // Exit if DB connection fails
-});
-
-// --- Mount Routers ---
-userRoutes(app); // User authentication and profile routes
-adminRoutes(app); // Admin panel routes
-searchRoutes(app); // SEO analysis routes
+// --- Database Connection ---
+mongoose
+    .connect(process.env.MONGODB_URI, {})
+    .then(() => {
+        console.log('MongoDB connected successfully.');
+    })
+    .catch((err) => {
+        console.error('MongoDB connection error:', err);
+        process.exit(1); // Exit if DB connection fails
+    });
 
 // --- AI Model Dispatcher ---
-// TODO: Consider moving this to a dedicated AI service module if complexity grows
+// TODO: Consider moving this to a dedicated AI service module (e.g., server/aiService.js)
 const generateAIResponse = async (prompt, model, temperature = 0.7) => {
     try {
         switch (model) {
@@ -104,66 +100,65 @@ const generateAIResponse = async (prompt, model, temperature = 0.7) => {
                 return await getTextGemini(prompt, model, temperature);
             case 'deepseek-reasoner':
                 return await getTextDeepseek(prompt, model, temperature);
-            case 'claude-3-7-sonnet-20250219':
+            case 'claude-3-7-sonnet-20250219': // Example Claude model name, adjust if needed
+            case 'claude-3-opus-20240229':
+            case 'claude-3-sonnet-20240229':
+            case 'claude-3-haiku-20240307':
                 return await getTextClaude(prompt, model, temperature);
             case 'grok-2-latest':
             case 'grok-3-mini':
                 return await getTextGrok(prompt, model, temperature);
             default:
-                console.warn(`Invalid or unsupported AI model specified: ${model}`);
-                // Fallback or throw error - decide based on desired behavior
-                // Using a default/fallback model:
-                // return await getTextGpt(prompt, 'gpt-4o-mini', temperature);
-                throw new Error(`Invalid AI model specified: ${model}`);
+                console.warn(
+                    `Invalid or unsupported AI model specified: ${model}. Falling back to default.`
+                );
+                // Fallback to a default model (e.g., gpt-4o-mini)
+                return await getTextGpt(prompt, 'gpt-4o-mini', temperature);
+            // OR throw an error:
+            // throw new Error(`Invalid AI model specified: ${model}`);
         }
     } catch (error) {
         console.error(`Error generating AI response with model ${model}:`, error);
         throw error; // Re-throw the error to be handled by the caller
     }
 };
+// Make dispatcher available globally or pass to routes if needed
+app.locals.generateAIResponse = generateAIResponse;
 
-// --- Utility Functions ---
-// TODO: Move to utils.js
-export const getIpFromRequest = (req) => {
-    let ips = (
-        req.headers['x-real-ip'] ||
-        req.headers['x-forwarded-for'] ||
-        req.connection.remoteAddress ||
-        ''
-    ).split(',');
-    return ips[0].trim();
-};
-
-// --- Usage Limit Middleware ---
-// TODO: Adapt this for SEO analysis limits instead of presentation limits
+// --- Usage Limit Middleware Placeholder ---
+// TODO: Adapt this for SEO analysis limits and apply to relevant routes (e.g., within search.js)
 /*
 export const checkUsageLimit = async (req, res, next) => {
+    if (!req.user) { // Only apply to logged-in users
+        return next(); // Skip for anonymous users (or apply different limits)
+    }
     try {
         const user = await User.findById(req.user.id);
         if (!user) {
             return res.status(401).json({ error: 'User not found' });
         }
 
-        // Example: Limit free users to 5 analyses per day
+        // Example: Limit free users to 5 analyses per 24 hours
         const isPremium = user.subscriptionStatus === 'active' || user.subscriptionStatus === 'trialing';
-        const limit = isPremium ? Infinity : 5; // Premium users have no limit, free users have 5
+        const limit = isPremium ? Infinity : 5; // Premium: unlimited, Free: 5
+        const periodMs = 24 * 60 * 60 * 1000; // 24 hours
 
-        if (!isPremium) {
-            const now = new Date();
-            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const now = Date.now();
+        const usageWindowStart = now - periodMs;
 
-            if (user.lastAnalysisTime && user.lastAnalysisTime >= todayStart) {
-                if (user.analysisCount >= limit) {
-                    return res.status(429).json({ error: 'Daily analysis limit reached. Please upgrade for unlimited analyses.' });
-                }
-                user.analysisCount++;
-            } else {
-                // Reset count for the new day
-                user.analysisCount = 1;
-            }
-            user.lastAnalysisTime = now; // Update last analysis time
-            await user.save();
+        // Filter usage records within the current window
+        user.analysisUsage = user.analysisUsage.filter(timestamp => timestamp > usageWindowStart);
+
+        if (!isPremium && user.analysisUsage.length >= limit) {
+            const nextAvailableTime = new Date(user.analysisUsage[0] + periodMs);
+            return res.status(429).json({
+                error: `Daily analysis limit (${limit}) reached. Please upgrade or try again after ${nextAvailableTime.toLocaleString()}.`
+            });
         }
+
+        // Record usage (only if limit check passes or user is premium)
+        user.analysisUsage.push(now);
+        await user.save();
 
         next(); // Proceed if limit not reached or user is premium
     } catch (err) {
@@ -173,23 +168,34 @@ export const checkUsageLimit = async (req, res, next) => {
 };
 */
 
-// --- API Endpoints ---
+// --- Mount Routers ---
+userRoutes(app); // Handles /api/user/*
+adminRoutes(app); // Handles /api/admin/*
+// searchRoutes(app); // Handles /api/search/*
+
+// --- Specific API Endpoints ---
 
 // Feedback Endpoint
 app.post('/api/feedback', authenticateTokenOptional, async (req, res) => {
     try {
-        const { message, type } = req.body;
+        const { message, type, context } = req.body; // Added context (optional)
         if (!message || !type) {
             return res.status(400).json({ error: 'Message and type are required for feedback.' });
         }
         const feedback = new Feedback({
-            userId: req?.user?.id, // Optional user ID
+            userId: req?.user?.id, // Optional: links feedback to logged-in user
             message,
             type,
+            context, // Store additional context like current page or feature
+            ipAddress: req.ip, // Store IP address
+            userAgent: req.headers['user-agent'], // Store User Agent
             createdAt: new Date()
         });
         await feedback.save();
-        res.status(201).json(feedback);
+        res.status(201).json({
+            message: 'Feedback received successfully.',
+            feedbackId: feedback._id
+        });
     } catch (error) {
         console.error('Error saving feedback:', error);
         res.status(500).json({ error: 'Failed to save feedback.' });
@@ -205,11 +211,11 @@ if (stripe && process.env.STRIPE_WH_SECRET) {
         try {
             event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WH_SECRET);
         } catch (err) {
-            console.error(`⚠️ Webhook signature verification failed.`, err.message);
+            console.error(`⚠️ Stripe Webhook signature verification failed.`, err.message);
             return res.status(400).send(`Webhook Error: ${err.message}`);
         }
 
-        console.log('✅ Stripe Webhook Success:', event.id, event.type);
+        console.log('✅ Stripe Webhook Received:', event.id, event.type);
 
         // Handle the event
         switch (event.type) {
@@ -218,53 +224,79 @@ if (stripe && process.env.STRIPE_WH_SECRET) {
             case 'customer.subscription.deleted': {
                 const subscription = event.data.object;
                 try {
-                    const customer = await stripe.customers.retrieve(subscription.customer);
-                    if (customer.deleted) {
-                        console.log(`Customer ${subscription.customer} is deleted. Skipping user update.`);
+                    // Retrieve customer only if needed (e.g., to get email if not in metadata)
+                    // Ensure customer email is reliably associated with your User model
+                    let userEmail;
+                    if (subscription.metadata && subscription.metadata.userEmail) {
+                        userEmail = subscription.metadata.userEmail;
+                    } else {
+                        const customer = await stripe.customers.retrieve(subscription.customer);
+                        if (customer.deleted) {
+                            console.log(
+                                `Customer ${subscription.customer} is deleted. Skipping user update.`
+                            );
+                            break;
+                        }
+                        userEmail = customer.email;
+                    }
+
+                    if (!userEmail) {
+                        console.error(
+                            `Could not determine user email for subscription ${subscription.id}. Customer: ${subscription.customer}`
+                        );
                         break;
                     }
+
                     const user = await User.findOneAndUpdate(
-                        { email: customer.email },
+                        { email: userEmail },
                         {
                             subscriptionStatus: subscription.status,
                             subscriptionId: subscription.id,
-                            stripeCustomerId: customer.id // Store Stripe customer ID
+                            stripeCustomerId: subscription.customer, // Ensure this is stored
+                            planId: subscription.items?.data[0]?.price?.id // Store current plan ID
                         },
-                        { new: true } // Return the updated document
+                        { new: true, upsert: false } // Don't create user here, should exist
                     );
                     if (!user) {
-                        console.error(`User not found for email ${customer.email} during webhook processing.`);
+                        console.error(
+                            `User not found for email ${userEmail} during webhook processing for subscription ${subscription.id}.`
+                        );
                     } else {
-                        console.log(`Updated user ${user.email} subscription status to ${subscription.status}`);
-                        // Optional: Send Google Analytics event (ensure GA_API_SECRET and measurement_id are set)
-                        /*
-                        const measurement_id = process.env.GA_MEASUREMENT_ID;
-                        const api_secret = process.env.GA_API_SECRET;
-                        if (measurement_id && api_secret) {
-                            fetch(`https://www.google-analytics.com/mp/collect?measurement_id=${measurement_id}&api_secret=${api_secret}`, {
-                                method: 'POST',
-                                body: JSON.stringify({
-                                    client_id: user._id.toString(), // Use user ID as client_id if appropriate
-                                    user_id: user._id.toString(),
-                                    events: [{
-                                        name: 'subscription_update', // More specific event name
-                                        params: {
-                                            subscription_status: subscription.status,
-                                            plan_id: subscription.items?.data[0]?.price?.id, // Example: get plan ID
-                                            // Add other relevant parameters
-                                        },
-                                    }],
-                                })
-                            }).catch(err => console.error('Error sending GA event:', err));
-                        }
-                        */
+                        console.log(
+                            `Updated user ${user.email} subscription status to ${subscription.status}, Plan: ${subscription.items?.data[0]?.price?.id}`
+                        );
+                        // Optional: Trigger other actions like sending confirmation email, updating analytics
                     }
                 } catch (err) {
-                    console.error(`Error processing subscription webhook for customer ${subscription.customer}:`, err);
+                    console.error(
+                        `Error processing subscription webhook ${event.id} (Type: ${event.type}) for customer ${subscription.customer}:`,
+                        err
+                    );
+                    // Respond with 500 to signal Stripe to retry (if appropriate)
+                    // return res.status(500).send('Internal server error processing webhook.');
                 }
                 break;
             }
-            // TODO: Handle other relevant events like 'invoice.payment_succeeded', 'invoice.payment_failed'
+            case 'invoice.payment_succeeded': {
+                const invoice = event.data.object;
+                // Common scenario: Subscription payment succeeded
+                if (invoice.subscription) {
+                    // Potentially update user record, e.g., grant access period, log payment
+                    console.log(`Payment succeeded for subscription ${invoice.subscription}`);
+                    // Find user by subscriptionId or customerId and update accordingly
+                }
+                break;
+            }
+            case 'invoice.payment_failed': {
+                const invoice = event.data.object;
+                // Handle failed payment, e.g., notify user, update subscription status via `customer.subscription.updated` event
+                console.log(
+                    `Payment failed for invoice ${invoice.id}, subscription ${invoice.subscription}`
+                );
+                // User status likely updated via `customer.subscription.updated` to 'past_due' or 'canceled'
+                break;
+            }
+            // Add other relevant event types as needed
             default:
                 console.log(`Unhandled Stripe event type ${event.type}`);
         }
@@ -273,10 +305,12 @@ if (stripe && process.env.STRIPE_WH_SECRET) {
         res.json({ received: true });
     });
 } else {
-    console.warn('Stripe key or webhook secret not configured. Stripe integration disabled.');
+    console.warn(
+        'Stripe key (STRIPE_KEY) or webhook secret (STRIPE_WH_SECRET) not configured. Stripe integration disabled.'
+    );
 }
 
-// Docs Endpoint (Reads markdown files from ../docs)
+// Docs Endpoint (Reads markdown files from ../docs) - Ensure '../docs' exists or handle error
 app.get('/api/docs', async (req, res) => {
     try {
         const search = req.query.search ? req.query.search.toLowerCase() : '';
@@ -285,31 +319,43 @@ app.get('/api/docs', async (req, res) => {
                 ? req.query.category.toLowerCase()
                 : null;
 
-        const docsPath = join(__dirname, '../docs'); // Assuming docs are in ../docs relative to server/index.js
+        const docsPath = join(__dirname, '../docs'); // Path relative to server/index.js
         let filenames = [];
         try {
             filenames = await fsPromises.readdir(docsPath);
         } catch (err) {
             if (err.code === 'ENOENT') {
-                console.warn('Docs directory not found at:', docsPath);
+                console.warn('Documentation directory not found at:', docsPath);
                 return res.json([]); // Return empty array if docs dir doesn't exist
             }
+            console.error('Error reading docs directory:', err);
             throw err; // Re-throw other errors
         }
 
-        const docsData = await Promise.all(
-            filenames
-                .filter(filename => filename.endsWith('.md')) // Process only markdown files
-                .map(async (filename) => {
+        const docsDataPromises = filenames
+            .filter((filename) => filename.endsWith('.md'))
+            .map(async (filename) => {
+                try {
                     const filePath = join(docsPath, filename);
                     const content = await fsPromises.readFile(filePath, 'utf8');
-                    // Basic title extraction from filename (improve if needed)
-                    const title = filename.replace(/\.md$/, '').replace(/[_-]+/g, ' ');
-                    // TODO: Implement category extraction if needed (e.g., from frontmatter or subdirectories)
-                    const category = 'general';
+                    // Basic title extraction from filename (can be improved, e.g., reading frontmatter)
+                    const title = filename
+                        .replace(/\.md$/, '')
+                        .replace(/[_-]+/g, ' ')
+                        // Simple title case
+                        .replace(/\b\w/g, (char) => char.toUpperCase());
+
+                    // TODO: Implement category extraction (e.g., from frontmatter, subdirectories)
+                    const category = 'General'; // Default category
+
                     return { title, category, content, filename };
-                })
-        );
+                } catch (fileError) {
+                    console.error(`Error processing doc file ${filename}:`, fileError);
+                    return null; // Skip files that cause errors
+                }
+            });
+
+        const docsData = (await Promise.all(docsDataPromises)).filter((doc) => doc !== null);
 
         let filteredDocs = docsData;
 
@@ -317,8 +363,8 @@ app.get('/api/docs', async (req, res) => {
         if (categoryQuery) {
             filteredDocs = filteredDocs.filter(
                 (doc) =>
-                    doc.category.toLowerCase().includes(categoryQuery) ||
-                    doc.filename.toLowerCase().includes(categoryQuery) // Allow filtering by filename too
+                    doc.category.toLowerCase() === categoryQuery || // Exact match category
+                    doc.filename.toLowerCase().includes(categoryQuery) // Allow filtering by filename part
             );
         }
         if (search) {
@@ -340,30 +386,34 @@ app.get('/api/docs', async (req, res) => {
 app.get('/sitemap.xml', async (req, res) => {
     try {
         // TODO: Fetch dynamic URLs if SEO reports have public pages
-        // const reports = await Report.find({ isPublic: true }).select('slug createdAt');
+        // const reports = await Report.find({ isPublic: true }).select('slug createdAt updatedAt'); // Example
 
-        const baseUrl = 'https://seocheck.my'; // Update base URL
+        const baseUrl = process.env.BASE_URL || 'https://seocheck.my'; // Use env variable or default
         const staticRoutes = [
-            '/', // Assumes Landing.jsx is at root
+            '/',
             '/docs',
             '/privacy',
             '/terms',
             '/login',
             '/signup',
             '/forgot',
-            // Add other static pages served by the React app
-            '/profile',
-            '/feedback',
-            '/admin' // Consider if admin should be in sitemap
+            // Add other static client-side routes served by React Router
+            '/profile', // Assuming '/profile' is a route
+            '/feedback' // Assuming '/feedback' is a route
+            // '/admin' // Usually excluded from public sitemaps
         ];
 
         let urlsXml = staticRoutes
-            .map((route) => `<url><loc>${baseUrl}${route}</loc></url>`)
+            .map(
+                (route) =>
+                    `<url><loc>${baseUrl}${route}</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>`
+            ) // Added changefreq/priority
             .join('');
 
         // TODO: Add dynamic report URLs if applicable
         // reports.forEach((report) => {
-        //     urlsXml += `<url><loc>${baseUrl}/report/${report.slug}</loc><lastmod>${report.createdAt.toISOString()}</lastmod></url>`;
+        //     const lastMod = report.updatedAt || report.createdAt;
+        //     urlsXml += `<url><loc>${baseUrl}/report/${report.slug}</loc><lastmod>${lastMod.toISOString().split('T')[0]}</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>`;
         // });
 
         const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
@@ -380,75 +430,121 @@ ${urlsXml}
 });
 
 // --- Serve Frontend ---
-// Serve index.html for all other GET requests (React Router handles client-side routing)
+// This should be the LAST route handler (except for error handlers)
 app.get('*', (req, res, next) => {
-    // Avoid serving index.html for API routes or specific files like sitemap.xml
-    if (req.path.startsWith('/api/') || req.path.endsWith('.xml') || req.path.endsWith('.txt') || req.path.includes('.')) {
-       return next();
+    // Avoid serving index.html for API routes or specific known file types
+    if (
+        req.path.startsWith('/api/') ||
+        req.path.endsWith('.xml') ||
+        req.path.endsWith('.txt') ||
+        req.path.includes('.') // Basic check for file extensions
+    ) {
+        return next(); // Pass to 404 handler if not an API route handled above
     }
+
     try {
         const htmlPath = join(__dirname, '../dist/index.html');
-        // Check if file exists before sending
+        // Check if file exists before sending - crucial for deployments
         if (fs.existsSync(htmlPath)) {
             res.sendFile(htmlPath);
         } else {
-            // Handle case where index.html doesn't exist (e.g., build not run)
-            console.error('index.html not found in dist folder:', htmlPath);
-            res.status(500).send('Application not built correctly.');
+            console.error('Frontend entry point (index.html) not found at:', htmlPath);
+            // Send a more user-friendly message or a specific status page
+            res.status(500).send('Application is currently unavailable. Please try again later.');
         }
     } catch (error) {
-        console.error('Error serving index.html:', error);
-        next(error); // Pass error to global handler
+        console.error('Error serving frontend entry point:', error);
+        next(error); // Pass error to the global error handler
     }
 });
-
 
 // --- Error Handling ---
 // 404 Handler (if no other route matched)
 app.use((req, res) => {
-    res.status(404).json({ error: 'Not Found' });
+    res.status(404).json({ error: 'Not Found', path: req.originalUrl });
 });
 
-// Global Error Handler
+// Global Error Handler (must have 4 arguments: err, req, res, next)
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-    console.error('Global Error Handler:', err);
-    // TODO: Add more sophisticated error handling (e.g., distinguish client vs server errors)
-    res.status(err.status || 500).json({
-        error: err.message || 'Internal Server Error'
+    console.error('Global Error Handler caught:', err.stack || err);
+
+    // Default to 500 Internal Server Error
+    const statusCode = err.status || err.statusCode || 500;
+    const message = err.message || 'Internal Server Error';
+
+    // Avoid sending stack traces in production
+    const responseError =
+        process.env.NODE_ENV === 'production'
+            ? { error: message }
+            : { error: message, stack: err.stack };
+
+    res.status(statusCode).json(responseError);
+});
+
+// --- Process Event Handlers for Graceful Shutdown and Error Logging ---
+process.on('uncaughtException', (err, origin) => {
+    console.error(`UNCAUGHT EXCEPTION: ${err.stack || err}`, `\nException origin: ${origin}`);
+    // In production, consider a more robust logging mechanism and potentially a graceful shutdown
+    // process.exit(1); // Forcing exit might lose context, use cautiously
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED REJECTION at:', promise, 'reason:', reason);
+    // Log the rejection reason, potentially exit in critical scenarios
+    // process.exit(1);
+});
+
+// Optional: Graceful shutdown on SIGTERM/SIGINT
+const signals = ['SIGINT', 'SIGTERM'];
+signals.forEach((signal) => {
+    process.on(signal, () => {
+        console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+        // Close server, database connections, etc.
+        mongoose.connection.close(() => {
+            console.log('MongoDB connection closed.');
+            process.exit(0);
+        });
+        // Add timeout for forceful shutdown if graceful fails
+        setTimeout(() => {
+            console.error('Could not close connections in time, forcefully shutting down');
+            process.exit(1);
+        }, 10000); // 10 seconds timeout
     });
 });
 
-// Uncaught Exception Handler
-process.on('uncaughtException', (err, origin) => {
-    console.error(`UNCAUGHT EXCEPTION: ${err.stack || err}`, `Exception origin: ${origin}`);
-    // Consider gracefully shutting down the server here in production
-    // process.exit(1);
-});
+// --- Google Credentials Setup ---
+// Set Google Credentials Path (if needed for VertexAI/Gemini)
+const setGoogleCredentials = () => {
+    const envPath = process.env.GOOGLE_APPLICATION_CREDENTIALS_PATH;
+    if (envPath) {
+        const absolutePath = join(__dirname, envPath); // Assume path is relative to server dir if not absolute
+        if (fs.existsSync(absolutePath)) {
+            process.env['GOOGLE_APPLICATION_CREDENTIALS'] = absolutePath;
+            console.log(`Using Google Application Credentials from env var: ${absolutePath}`);
+            return;
+        } else {
+            console.warn(
+                `Google credentials file specified in GOOGLE_APPLICATION_CREDENTIALS_PATH not found: ${absolutePath}`
+            );
+        }
+    }
 
-// Unhandled Rejection Handler
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('UNHANDLED REJECTION at:', promise, 'reason:', reason);
-    // Consider gracefully shutting down the server here in production
-    // process.exit(1);
-});
+    // Default path if not set via environment variable
+    const defaultGoogleCredsPath = join(__dirname, 'google.json');
+    if (fs.existsSync(defaultGoogleCredsPath)) {
+        process.env['GOOGLE_APPLICATION_CREDENTIALS'] = defaultGoogleCredsPath;
+        console.log(`Using default Google Application Credentials from: ${defaultGoogleCredsPath}`);
+    } else {
+        console.warn(
+            'Google Application Credentials path not set (GOOGLE_APPLICATION_CREDENTIALS_PATH) and default google.json not found in server directory. Google Cloud services might not work.'
+        );
+    }
+};
+
+setGoogleCredentials();
 
 // --- Start Server ---
 app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+    console.log(`Server running on http://localhost:${port}`);
 });
-
-// Set Google Credentials Path (if needed for VertexAI/Gemini)
-// Ensure the path is correct relative to where the server is started
-if (process.env.GOOGLE_APPLICATION_CREDENTIALS_PATH) {
-    process.env['GOOGLE_APPLICATION_CREDENTIALS'] = process.env.GOOGLE_APPLICATION_CREDENTIALS_PATH;
-    console.log(`Using Google Application Credentials from: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`);
-} else {
-    // Default path if not set via environment variable, adjust as needed
-    const defaultGoogleCredsPath = join(__dirname, 'google.json');
-    if (fs.existsSync(defaultGoogleCredsPath)) {
-         process.env['GOOGLE_APPLICATION_CREDENTIALS'] = defaultGoogleCredsPath;
-         console.log(`Using default Google Application Credentials from: ${defaultGoogleCredsPath}`);
-    } else {
-        console.warn('Google Application Credentials path not set (GOOGLE_APPLICATION_CREDENTIALS_PATH) and default google.json not found. Google Cloud services might not work.');
-    }
-}

@@ -18,8 +18,6 @@ import {
 } from '@chakra-ui/react';
 import { HamburgerIcon, CloseIcon, ChevronDownIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-// Assuming logo is image.png in the public folder
-// import logo from './assets/logo.png'; // Original incorrect path
 import { UserContext } from './App';
 
 export default function Navbar() {
@@ -28,6 +26,8 @@ export default function Navbar() {
     const navigate = useNavigate();
     const bgColor = useColorModeValue('white', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
+    const linkColor = useColorModeValue('gray.600', 'gray.200');
+    const linkHoverColor = useColorModeValue('gray.800', 'white');
 
     const handleLogout = () => {
         localStorage.removeItem('token');
@@ -44,22 +44,28 @@ export default function Navbar() {
         if (isOpen) onToggle();
     };
 
-    // Define navigation items
-    const NAV_ITEMS = [
-        { label: 'Docs', href: '/docs', requiresAuth: false }, // Added Docs link
-        { label: 'Feedback', href: '/feedback', requiresAuth: false },
-        // Conditionally add Admin link if user is logged in and is admin
-        ...(user?.isAdmin ? [{ label: 'Admin', href: '/admin', requiresAuth: true }] : [])
+    // Define base public navigation items
+    const baseNavItems = [
+        { label: 'Docs', href: '/docs' },
+        { label: 'Feedback', href: '/feedback' }
     ];
 
-    // Filter items based on authentication status (only relevant for Admin here)
-    const filteredNavItems = NAV_ITEMS.filter((item) => !item.requiresAuth || user?.email);
+    // Conditionally add authenticated/admin items
+    const authNavItems = [];
+    if (user) {
+        authNavItems.push({ label: 'Dashboard', href: '/dashboard' });
+        if (user.isAdmin) {
+            authNavItems.push({ label: 'Admin', href: '/admin' });
+        }
+    }
+
+    const NAV_ITEMS = [...baseNavItems, ...authNavItems];
 
     return (
-        <Box position="sticky" top="0" zIndex="1000">
+        <Box position="sticky" top="0" zIndex="1000" width="100%">
             <Flex
                 bg={bgColor}
-                color={useColorModeValue('gray.600', 'white')}
+                color={linkColor}
                 minH="60px"
                 py={{ base: 2 }}
                 px={{ base: 4 }}
@@ -75,24 +81,19 @@ export default function Navbar() {
                     ml={{ base: -2 }}
                     display={{ base: 'flex', md: 'none' }}
                 >
-                    {/* Show hamburger only if there are nav items to display */}
-                    {filteredNavItems.length > 0 && (
-                        <IconButton
-                            onClick={onToggle}
-                            icon={
-                                isOpen ? <CloseIcon w={3} h={3} /> : <HamburgerIcon w={5} h={5} />
-                            }
-                            variant="ghost"
-                            aria-label="Toggle Navigation"
-                        />
-                    )}
+                    <IconButton
+                        onClick={onToggle}
+                        icon={isOpen ? <CloseIcon w={3} h={3} /> : <HamburgerIcon w={5} h={5} />}
+                        variant="ghost"
+                        aria-label="Toggle Navigation"
+                    />
                 </Flex>
 
                 {/* Logo and Desktop Navigation */}
                 <Flex flex={{ base: 1 }} justify={{ base: 'center', md: 'start' }} align="center">
                     <Image
-                        src="/image.png" // Updated path to public folder
-                        alt="Seocheck.pro Logo" // Updated alt text
+                        src="/image.png" // Path relative to public folder
+                        alt="Seocheck.my Logo"
                         h="40px"
                         mr={3}
                         cursor="pointer"
@@ -100,13 +101,13 @@ export default function Navbar() {
                     />
                     {/* Desktop Navigation Links */}
                     <Flex display={{ base: 'none', md: 'flex' }} ml={10}>
-                        <DesktopNav navItems={filteredNavItems} />
+                        <DesktopNav navItems={NAV_ITEMS} />
                     </Flex>
                 </Flex>
 
                 {/* Authentication Buttons */}
                 <Stack flex={{ base: 1, md: 0 }} justify="flex-end" direction="row" spacing={6}>
-                    {user?.email ? (
+                    {user ? (
                         <>
                             <Button
                                 as={RouterLink}
@@ -125,6 +126,7 @@ export default function Navbar() {
                                 }}
                                 colorScheme="red"
                                 variant="outline"
+                                size="sm" // Consistent size
                                 fontSize="sm"
                                 fontWeight={600}
                             >
@@ -137,6 +139,8 @@ export default function Navbar() {
                                 as={RouterLink}
                                 to="/login"
                                 variant="ghost"
+                                fontSize="sm"
+                                fontWeight={400}
                                 onClick={handleNavClick} // Close mobile menu on click
                             >
                                 Login
@@ -148,10 +152,11 @@ export default function Navbar() {
                                 fontSize="sm"
                                 fontWeight={600}
                                 color="white"
-                                bg="#3498DB" // Specific blue color
+                                bg="primary.500" // Use theme color
+                                size="sm" // Consistent size
                                 onClick={handleNavClick} // Close mobile menu on click
                                 _hover={{
-                                    bg: '#2980B9' // Darker blue on hover
+                                    bg: 'secondary.500' // Use theme color
                                 }}
                             >
                                 Sign Up
@@ -162,12 +167,10 @@ export default function Navbar() {
             </Flex>
 
             {/* Mobile Navigation Menu */}
-            {filteredNavItems.length > 0 && (
-                <Collapse in={isOpen} animateOpacity>
-                    {/* Pass onNavClick to close menu when item is clicked */}
-                    <MobileNav navItems={filteredNavItems} onNavClick={handleNavClick} />
-                </Collapse>
-            )}
+            <Collapse in={isOpen} animateOpacity>
+                {/* Pass onNavClick to close menu when item is clicked */}
+                <MobileNav navItems={NAV_ITEMS} onNavClick={handleNavClick} />
+            </Collapse>
         </Box>
     );
 }
@@ -233,13 +236,13 @@ const DesktopSubNav = ({ label, href, subLabel }) => {
             display="block"
             p={2}
             rounded="md"
-            _hover={{ bg: useColorModeValue('blue.50', 'gray.900') }} // Highlight on hover
+            _hover={{ bg: useColorModeValue('primary.50', 'gray.900') }} // Use theme color tint
         >
             <Stack direction="row" align="center">
                 <Box>
                     <Text
                         transition="all .3s ease"
-                        _groupHover={{ color: '#3498DB' }} // Color change on hover
+                        _groupHover={{ color: 'primary.500' }} // Use theme color
                         fontWeight={500}
                     >
                         {label}
@@ -255,7 +258,8 @@ const DesktopSubNav = ({ label, href, subLabel }) => {
                     align="center"
                     flex={1}
                 >
-                    <Icon color="#3498DB" w={5} h={5} as={ChevronRightIcon} />
+                    <Icon color="primary.500" w={5} h={5} as={ChevronRightIcon} />{' '}
+                    {/* Use theme color */}
                 </Flex>
             </Stack>
         </Link>
@@ -265,11 +269,19 @@ const DesktopSubNav = ({ label, href, subLabel }) => {
 // --- Mobile Navigation Component ---
 const MobileNav = ({ navItems, onNavClick }) => {
     return (
-        <Stack bg={useColorModeValue('white', 'gray.800')} p={4} display={{ md: 'none' }}>
+        <Stack
+            bg={useColorModeValue('white', 'gray.800')}
+            p={4}
+            display={{ md: 'none' }}
+            borderBottom="1px"
+            borderColor={useColorModeValue('gray.200', 'gray.700')}
+        >
             {navItems.map((navItem) => (
                 // Pass onNavClick to each item
                 <MobileNavItem key={navItem.label} {...navItem} onNavClick={onNavClick} />
             ))}
+            {/* Note: Auth buttons (Login/Signup/Profile/Logout) are handled separately in the main Flex bar */}
+            {/* This keeps them visible but might not be ideal UX. Consider integrating them here if needed. */}
         </Stack>
     );
 };
@@ -277,24 +289,38 @@ const MobileNav = ({ navItems, onNavClick }) => {
 // --- Mobile Navigation Item Component ---
 const MobileNavItem = ({ label, children, href, onNavClick }) => {
     const { isOpen, onToggle } = useDisclosure();
+    const linkColor = useColorModeValue('gray.600', 'gray.200');
 
     // If item has children, toggle sub-menu; otherwise, trigger navigation and close main menu
-    const handleClick = children ? onToggle : onNavClick;
+    const handleClick = (e) => {
+        if (children) {
+            // Prevent navigation if it's just a toggle
+            e.preventDefault();
+            onToggle();
+        } else if (href) {
+            // Allow navigation and close the main menu
+            onNavClick();
+            // Navigation is handled by RouterLink
+        } else {
+            // Fallback if no href and no children (shouldn't happen with current NAV_ITEMS)
+            onNavClick();
+        }
+    };
 
     return (
         <Stack spacing={4} onClick={handleClick}>
             <Flex
                 py={2}
                 as={RouterLink}
-                // Only navigate if it's a direct link (not just a toggle for children)
-                to={!children ? href ?? '#' : undefined}
+                // Only set 'to' prop if it's a direct link (no children)
+                to={!children ? (href ?? '#') : undefined}
                 justify="space-between"
                 align="center"
                 _hover={{
                     textDecoration: 'none'
                 }}
             >
-                <Text fontWeight={600} color={useColorModeValue('gray.600', 'gray.200')}>
+                <Text fontWeight={600} color={linkColor}>
                     {label}
                 </Text>
                 {/* Chevron icon for items with children */}
@@ -326,6 +352,9 @@ const MobileNavItem = ({ label, children, href, onNavClick }) => {
                                 as={RouterLink}
                                 to={child.href}
                                 onClick={onNavClick} // Ensure sub-item clicks also close the main menu
+                                // Close parent toggle as well if needed, though onClick on parent Stack might handle this
+                                display="block" // Ensure link takes full width for easier clicking
+                                width="100%"
                             >
                                 {child.label}
                             </Link>

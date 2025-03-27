@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useCallback } from 'react';
 import {
     Box,
     Button,
@@ -17,7 +17,9 @@ import {
     Alert,
     AlertIcon,
     Link as ChakraLink,
-    useToast
+    useToast,
+    Progress,
+    Center
 } from '@chakra-ui/react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { API_URL, UserContext } from './App';
@@ -29,43 +31,60 @@ const Dashboard = () => {
     const [errorReports, setErrorReports] = useState(null);
     const [urlToAnalyze, setUrlToAnalyze] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisProgress, setAnalysisProgress] = useState(0);
+    const [analysisStatus, setAnalysisStatus] = useState('');
     const toast = useToast();
     const navigate = useNavigate();
 
-    useEffect(() => {
-        const fetchReports = async () => {
-            if (!user) {
-                setIsLoadingReports(false);
-                return; // No user logged in
+    const fetchReports = useCallback(async () => {
+        if (!user) {
+            setIsLoadingReports(false);
+            setReports([]);
+            return;
+        }
+        setIsLoadingReports(true);
+        setErrorReports(null);
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw new Error('Authentication token not found.');
             }
-            setIsLoadingReports(true);
-            setErrorReports(null);
-            try {
-                const token = localStorage.getItem('token');
-                const response = await fetch(`${API_URL}/api/reports/recent`, { // Assuming this endpoint exists
-                    headers: {
-                        Authorization: `Bearer ${token}`
-                    }
-                });
-                if (!response.ok) {
-                    throw new Error('Failed to fetch reports');
+            // Assuming endpoint exists - adjust if necessary
+            const response = await fetch(`${API_URL}/api/reports/recent`, {
+                headers: {
+                    Authorization: `Bearer ${token}`
                 }
-                const data = await response.json();
-                setReports(data);
-            } catch (err) {
-                setErrorReports(err.message || 'Could not load recent reports.');
-                console.error('Error fetching reports:', err);
-            } finally {
-                setIsLoadingReports(false);
+            });
+            if (response.status === 401) {
+                localStorage.removeItem('token');
+                navigate('/login');
+                throw new Error('Unauthorized. Please log in again.');
             }
-        };
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || 'Failed to fetch reports');
+            }
+            const data = await response.json();
+            setReports(Array.isArray(data) ? data : []);
+        } catch (err) {
+            setErrorReports(err.message || 'Could not load recent reports.');
+            console.error('Error fetching reports:', err);
+            setReports([]);
+        } finally {
+            setIsLoadingReports(false);
+        }
+    }, [user, navigate]);
 
+    useEffect(() => {
         fetchReports();
-    }, [user]); // Re-fetch if user changes
+    }, [fetchReports]);
+
+    // Placeholder for polling analysis status if backend is async
+    // const pollAnalysisStatus = async (reportId) => { ... };
 
     const handleAnalysisSubmit = async (e) => {
         e.preventDefault();
-        if (!urlToAnalyze) {
+        if (!urlToAnalyze.trim()) {
             toast({
                 title: 'URL Required',
                 description: 'Please enter a website URL to analyze.',
@@ -75,10 +94,27 @@ const Dashboard = () => {
             });
             return;
         }
+
+        try {
+            // Basic URL validation
+            new URL(urlToAnalyze);
+        } catch {
+            toast({
+                title: 'Invalid URL',
+                description: 'Please enter a valid website URL (e.g., https://example.com).',
+                status: 'error',
+                duration: 4000,
+                isClosable: true
+            });
+            return;
+        }
+
         setIsAnalyzing(true);
+        setAnalysisStatus('Submitting analysis request...');
+        setAnalysisProgress(5);
         toast({
             title: 'Starting Analysis',
-            description: `Analyzing ${urlToAnalyze}... This may take a moment.`,
+            description: `Analyzing ${urlToAnalyze}... This may take some time.`,
             status: 'info',
             duration: 5000,
             isClosable: true
@@ -86,70 +122,116 @@ const Dashboard = () => {
 
         try {
             const token = localStorage.getItem('token');
+            if (!token) {
+                navigate('/login');
+                throw new Error('Authentication required.');
+            }
+
             const response = await fetch(`${API_URL}/api/search`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}` // Include token if analysis is user-specific or requires auth
+                    Authorization: `Bearer ${token}`
                 },
                 body: JSON.stringify({ url: urlToAnalyze })
             });
 
+            if (response.status === 401) {
+                localStorage.removeItem('token');
+                navigate('/login');
+                throw new Error('Unauthorized. Please log in again.');
+            }
+
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({})); // Try to parse error response
-                throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+                const errorData = await response
+                    .json()
+                    .catch(() => ({ message: `HTTP error! Status: ${response.status}` }));
+                throw new Error(errorData.message || `Analysis request failed.`);
             }
 
             const result = await response.json();
 
-            // Assuming the response contains the ID of the newly created report
-            // Or potentially the full report data if processed synchronously
-            // For now, let's assume we get an ID and redirect to a report page (which doesn't exist yet)
-            // Or maybe just refresh the recent reports list
+            // Handle async vs sync response based on expected API behavior
+            if (result.reportId && result.status === 'pending') {
+                // Async path
+                toast({
+                    title: 'Analysis Queued',
+                    description: 'Your analysis request has been submitted and is processing.',
+                    status: 'success',
+                    duration: 4000,
+                    isClosable: true
+                });
+                setUrlToAnalyze('');
+                fetchReports(); // Refresh list optimistically
+                setAnalysisStatus('Analysis queued. Refreshing list...');
+                setAnalysisProgress(10);
+                // pollAnalysisStatus(result.reportId); // Start polling if implemented
+                setTimeout(() => {
+                    // Reset status indicator after delay
+                    setAnalysisStatus('');
+                    setAnalysisProgress(0);
+                    setIsAnalyzing(false); // Re-enable button after delay
+                }, 5000);
+            } else if (result._id && result.url) {
+                // Sync path (or fast async)
+                toast({
+                    title: 'Analysis Complete',
+                    description: `Analysis for ${result.url} finished.`,
+                    status: 'success',
+                    duration: 4000,
+                    isClosable: true
+                });
+                setUrlToAnalyze('');
+                fetchReports(); // Refresh list
+                setAnalysisStatus('Analysis complete. Refreshing list...');
+                setAnalysisProgress(100);
+                setTimeout(() => {
+                    // Reset status indicator after delay
+                    setAnalysisStatus('');
+                    setAnalysisProgress(0);
+                    setIsAnalyzing(false); // Re-enable button after delay
+                }, 3000);
+                // Optionally navigate: navigate(`/report/${result._id}`);
+            } else {
+                throw new Error('Received an unexpected response from the server.');
+            }
+        } catch (error) {
+            console.error('Analysis failed:', error);
             toast({
-                title: 'Analysis Submitted',
-                description: 'Processing your request.', // Modify if synchronous
-                status: 'success',
-                duration: 3000,
+                title: 'Analysis Failed',
+                description: error.message || 'Could not start analysis.',
+                status: 'error',
+                duration: 5000,
                 isClosable: true
             });
-             // TODO: Navigate to a specific report page: navigate(`/report/${result.reportId}`);
-             // TODO: Or refresh the list: fetchReports(); // Need to extract fetchReports
-             setUrlToAnalyze(''); // Clear input after submission
-
-
-        } catch (error) {
-             console.error('Analysis failed:', error);
-             toast({
-                 title: 'Analysis Failed',
-                 description: error.message || 'Could not start analysis.',
-                 status: 'error',
-                 duration: 5000,
-                 isClosable: true
-             });
-        } finally {
-            setIsAnalyzing(false);
+            setAnalysisStatus('Analysis failed.');
+            setAnalysisProgress(0);
+            setIsAnalyzing(false); // Re-enable button on failure
         }
+        // Note: setIsAnalyzing(false) is handled within success/error/timeout paths now
     };
-
 
     return (
         <Container maxW="container.xl" py={8}>
             <VStack spacing={8} align="stretch">
-                <Heading as="h1" size="xl">
+                <Heading as="h1" size="xl" textAlign={{ base: 'center', md: 'left' }}>
                     Dashboard
                 </Heading>
-                <Text fontSize="lg">Welcome back{user?.firstName ? `, ${user.firstName}` : ''}!</Text>
+                <Text fontSize="lg" textAlign={{ base: 'center', md: 'left' }}>
+                    Welcome back{user?.firstName ? `, ${user.firstName}` : ''}!
+                </Text>
 
-                {/* Analysis Input Section */}
-                 <Card variant="outline">
+                <Card variant="outline" shadow="sm">
                     <CardHeader>
-                        <Heading size="md">Analyze a Website</Heading>
+                        <Heading size="md">Analyze a Website&apos;s SEO</Heading>
                     </CardHeader>
                     <CardBody>
                         <form onSubmit={handleAnalysisSubmit}>
                             <VStack spacing={4}>
-                                <FormControl isRequired>
+                                <FormControl
+                                    isRequired
+                                    isInvalid={!urlToAnalyze && isAnalyzing && !urlToAnalyze.trim()}
+                                >
                                     <FormLabel htmlFor="url">Website URL</FormLabel>
                                     <Input
                                         id="url"
@@ -158,55 +240,139 @@ const Dashboard = () => {
                                         value={urlToAnalyze}
                                         onChange={(e) => setUrlToAnalyze(e.target.value)}
                                         disabled={isAnalyzing}
+                                        size="lg"
                                     />
                                 </FormControl>
                                 <Button
                                     type="submit"
-                                    colorScheme="primary" // Use theme color
+                                    colorScheme="primary"
                                     isLoading={isAnalyzing}
                                     loadingText="Analyzing..."
                                     width="full"
+                                    size="lg"
+                                    disabled={isAnalyzing}
                                 >
                                     Analyze SEO
                                 </Button>
+                                {isAnalyzing && analysisProgress > 0 && (
+                                    <Box w="full" mt={2}>
+                                        <Progress
+                                            value={analysisProgress}
+                                            size="sm"
+                                            colorScheme="primary"
+                                            isAnimated
+                                            hasStripe={analysisProgress < 100}
+                                        />
+                                        {analysisStatus && (
+                                            <Text
+                                                fontSize="sm"
+                                                color="gray.600"
+                                                mt={1}
+                                                textAlign="center"
+                                            >
+                                                {analysisStatus}
+                                            </Text>
+                                        )}
+                                    </Box>
+                                )}
                             </VStack>
                         </form>
                     </CardBody>
                 </Card>
 
-
-                {/* Recent Reports Section */}
                 <Box>
                     <Heading size="lg" mb={4}>
                         Recent Analyses
                     </Heading>
                     {isLoadingReports ? (
-                        <Box display="flex" justifyContent="center" alignItems="center" minH="100px">
-                            <Spinner size="xl" />
-                        </Box>
+                        <Center minH="150px">
+                            <Spinner size="xl" color="primary.500" thickness="4px" />
+                        </Center>
                     ) : errorReports ? (
-                        <Alert status="error">
+                        <Alert status="error" variant="subtle" borderRadius="md">
                             <AlertIcon />
-                            {errorReports}
+                            <Text>Error loading reports: {errorReports}</Text>
                         </Alert>
                     ) : reports.length === 0 ? (
-                        <Text>You haven't analyzed any websites yet. Enter a URL above to get started!</Text>
+                        <Card variant="outline" p={5} textAlign="center" bg="background.100">
+                            <Text color="gray.600">
+                                You haven&apos;t analyzed any websites yet. Enter a URL above to get
+                                started!
+                            </Text>
+                        </Card>
                     ) : (
                         <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
                             {reports.map((report) => (
-                                <Card key={report._id} variant="outline">
-                                    <CardHeader>
-                                        {/* TODO: Link to the actual report page when available */}
-                                        <ChakraLink as={RouterLink} to={`/report/${report._id}`} fontWeight="bold">
-                                            {report.url || 'Report'}
-                                        </ChakraLink>
+                                <Card
+                                    key={report._id}
+                                    variant="outline"
+                                    shadow="sm"
+                                    _hover={{ shadow: 'md', borderColor: 'primary.500' }}
+                                    transition="all 0.2s ease-in-out"
+                                >
+                                    <CardHeader pb={2}>
+                                        <Heading size="sm" noOfLines={1} title={report.url || ''}>
+                                            {/* TODO: Ensure '/report/:id' route exists and handles report display */}
+                                            <ChakraLink
+                                                as={RouterLink}
+                                                to={`/report/${report._id}`}
+                                                color="primary.600"
+                                                fontWeight="semibold"
+                                            >
+                                                {report.url || `Report ${report._id.slice(-6)}`}
+                                            </ChakraLink>
+                                        </Heading>
                                     </CardHeader>
-                                    <CardBody>
-                                        <Text fontSize="sm" color="gray.600">
-                                            Analyzed on: {new Date(report.createdAt).toLocaleDateString()}
+                                    <CardBody pt={0}>
+                                        <Text fontSize="sm" color="gray.500" mb={2}>
+                                            Analyzed:{' '}
+                                            {new Date(
+                                                report.createdAt || Date.now()
+                                            ).toLocaleDateString()}
                                         </Text>
-                                        {/* Add more summary details here if available, e.g., score */}
-                                        {/* <Text mt={2}>Score: {report.overallScore || 'N/A'}</Text> */}
+                                        {report.overallScore !== undefined &&
+                                        report.overallScore !== null ? (
+                                            <Text fontWeight="medium">
+                                                Overall Score:{' '}
+                                                <Text
+                                                    as="span"
+                                                    color={
+                                                        report.overallScore > 75
+                                                            ? 'green.500'
+                                                            : report.overallScore > 50
+                                                              ? 'orange.500'
+                                                              : 'red.500'
+                                                    }
+                                                >
+                                                    {report.overallScore}%
+                                                </Text>
+                                            </Text>
+                                        ) : (
+                                            <Text fontSize="sm" fontStyle="italic" color="gray.400">
+                                                Score pending...
+                                            </Text>
+                                        )}
+                                        {report.status && report.status !== 'completed' && (
+                                            <Text
+                                                fontSize="xs"
+                                                color="orange.500"
+                                                mt={1}
+                                                textTransform="capitalize"
+                                            >
+                                                Status: {report.status}
+                                            </Text>
+                                        )}
+                                        <Button
+                                            as={RouterLink}
+                                            to={`/report/${report._id}`}
+                                            size="sm"
+                                            variant="outline"
+                                            colorScheme="secondary"
+                                            mt={3}
+                                            width="full"
+                                        >
+                                            View Report
+                                        </Button>
                                     </CardBody>
                                 </Card>
                             ))}
@@ -214,16 +380,17 @@ const Dashboard = () => {
                     )}
                 </Box>
 
-                 {/* Placeholder for future features like Project Grouping */}
-                 {/*
-                 <Box>
-                     <Heading size="lg" mb={4}>
-                         My Projects
-                     </Heading>
-                     <Text>Organize your analyses into projects (Coming Soon!).</Text>
-                 </Box>
-                 */}
-
+                <Card variant="outline" shadow="sm" bg="background.100">
+                    <CardHeader>
+                        <Heading size="md">My Projects</Heading>
+                    </CardHeader>
+                    <CardBody>
+                        <Text color="gray.500">
+                            Organize your analyses into projects for better tracking and comparison.
+                            (Coming Soon!)
+                        </Text>
+                    </CardBody>
+                </Card>
             </VStack>
         </Container>
     );

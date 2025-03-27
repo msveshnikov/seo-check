@@ -29,18 +29,27 @@ export const UserContext = createContext(null);
 const theme = extendTheme({
     colors: {
         primary: {
-            500: '#3498DB' // Blue
+            50: '#EBF8FF',
+            100: '#BEE3F8',
+            200: '#90CDF4',
+            300: '#63B3ED',
+            400: '#4299E1',
+            500: '#3182CE', // Adjusted primary blue based on Navbar usage
+            600: '#2B6CB0',
+            700: '#2C5282',
+            800: '#2A4365',
+            900: '#1A365D'
         },
         secondary: {
-            500: '#2980B9', // Darker Blue
-            600: '#2471A3'
+            500: '#2980B9', // Darker Blue from README
+            600: '#2471A3' // Even Darker Blue from README
         },
         accent: {
-            500: '#F1C40F', // Yellow
-            600: '#E67E22' // Orange
+            500: '#F1C40F', // Yellow from README
+            600: '#E67E22' // Orange from README
         },
         background: {
-            50: '#F8F9FA', // Light gray background
+            50: '#F8F9FA', // Light gray background from README
             100: '#E9ECEF'
         }
     },
@@ -55,13 +64,37 @@ const theme = extendTheme({
                 color: 'gray.800'
             }
         }
+    },
+    components: {
+        Button: {
+            // Example: Overriding default button props
+            baseStyle: {
+                // _focus: {
+                //   boxShadow: 'none', // Optional: Remove default focus outline if needed
+                // },
+            },
+            variants: {
+                // Example: Defining a custom variant
+                // 'primary-solid': {
+                //   bg: 'primary.500',
+                //   color: 'white',
+                //   _hover: {
+                //     bg: 'primary.600',
+                //   },
+                // },
+            },
+            defaultProps: {
+                // colorScheme: 'primary', // Set default color scheme if desired
+            }
+        }
+        // Add overrides for other components like Card, Input, etc. as needed
     }
 });
 
 // Loading Component
 const LoadingIndicator = () => (
     <Center height="80vh">
-        <Spinner size="xl" />
+        <Spinner size="xl" color="primary.500" thickness="4px" />
     </Center>
 );
 
@@ -75,19 +108,27 @@ const ProtectedRoute = ({ allowedRoles }) => {
     }
 
     if (!user) {
-        // Not logged in, redirect to login
-        return <Navigate to="/login" replace />;
+        // Not logged in, redirect to login, preserving the intended location
+        return <Navigate to="/login" replace state={{ from: window.location.pathname }} />;
     }
 
     // Check roles only if allowedRoles is provided
-    if (allowedRoles && !allowedRoles.some((role) => (role === 'admin' ? user.isAdmin : true))) {
-        // Logged in but doesn't have the required role (e.g., admin)
-        // Redirect non-admins trying to access admin routes
-        return <Navigate to="/dashboard" replace />; // Redirect to dashboard or home for unauthorized access
+    // Assumes user object has an `isAdmin` boolean property or potentially a `roles` array
+    const userIsAdmin = user && user.isAdmin === true; // Explicit check for boolean true
+    const hasRequiredRole =
+        !allowedRoles || allowedRoles.some((role) => (role === 'admin' ? userIsAdmin : true)); // Check if admin role is required and user has it
+
+    if (!hasRequiredRole) {
+        // Logged in but doesn't have the required role (e.g., non-admin trying to access admin)
+        // Redirect to a default logged-in page, like dashboard
+        console.warn(
+            `User ${user.email} tried to access a route requiring roles: ${allowedRoles.join(', ')}`
+        );
+        return <Navigate to="/dashboard" replace />; // Redirect to dashboard for unauthorized access
     }
 
     // Logged in and has permission (or no specific roles required)
-    return <Outlet />;
+    return <Outlet />; // Render the child route component
 };
 
 // Main App Component
@@ -97,34 +138,52 @@ function App() {
 
     useEffect(() => {
         const token = localStorage.getItem('token');
-        if (token) {
-            fetch(`${API_URL}/api/profile`, {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
-            })
-                .then(async (res) => {
-                    if (res.ok) {
-                        return res.json();
+        let isMounted = true; // Prevent state update on unmounted component
+
+        const fetchUserProfile = async () => {
+            if (!token) {
+                setIsLoading(false);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/api/profile`, {
+                    headers: {
+                        Authorization: `Bearer ${token}`
                     }
+                });
+
+                if (!response.ok) {
                     // If token is invalid/expired, remove it
                     localStorage.removeItem('token');
-                    throw new Error('Invalid or expired token');
-                })
-                .then((data) => {
-                    setUser(data); // Set user data on successful fetch
-                })
-                .catch((error) => {
-                    console.error('Failed to fetch profile:', error.message);
+                    if (isMounted) setUser(null);
+                    throw new Error(`Failed to fetch profile: ${response.statusText}`);
+                }
+
+                const userData = await response.json();
+                if (isMounted) {
+                    setUser(userData); // Set user data on successful fetch
+                }
+            } catch (error) {
+                console.error('Error fetching user profile:', error.message);
+                if (isMounted) {
                     setUser(null); // Ensure user is null if fetch fails or token is invalid
-                })
-                .finally(() => {
+                    localStorage.removeItem('token'); // Clean up invalid token
+                }
+            } finally {
+                if (isMounted) {
                     setIsLoading(false); // Set loading to false after fetch attempt completes
-                });
-        } else {
-            setIsLoading(false); // No token, so not loading user data
-        }
-    }, []);
+                }
+            }
+        };
+
+        fetchUserProfile();
+
+        // Cleanup function to run when the component unmounts
+        return () => {
+            isMounted = false;
+        };
+    }, []); // Empty dependency array ensures this runs only once on mount
 
     return (
         <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
@@ -132,37 +191,58 @@ function App() {
                 <Suspense fallback={<LoadingIndicator />}>
                     <UserContext.Provider value={{ user, setUser, isLoading }}>
                         <Router>
-                            <Box pb={{ base: '70px', md: '0' }} minH="100vh" bg="background.50">
+                            <Box
+                                display="flex"
+                                flexDirection="column"
+                                minH="100vh"
+                                bg="background.50"
+                            >
                                 <Navbar />
-                                <Container maxW="container.xl" pt={8} pb={16}>
-                                    <Routes>
-                                        {/* Public Routes */}
-                                        <Route path="/" element={<Landing />} />
-                                        <Route path="/privacy" element={<Privacy />} />
-                                        <Route path="/terms" element={<Terms />} />
-                                        <Route path="/login" element={<Login />} />
-                                        <Route path="/signup" element={<SignUp />} />
-                                        <Route path="/forgot" element={<Forgot />} />
-                                        <Route path="/reset-password/:token" element={<Reset />} />
-                                        <Route path="/feedback" element={<Feedback />} />
-                                        <Route path="/docs/*" element={<Docs />} />
+                                <Box flex="1" pb={{ base: '70px', md: '0' }}>
+                                    {' '}
+                                    {/* Adjust padding for BottomNav */}
+                                    <Container maxW="container.xl" pt={8} pb={16}>
+                                        <Routes>
+                                            {/* Public Routes */}
+                                            <Route path="/" element={<Landing />} />
+                                            <Route path="/privacy" element={<Privacy />} />
+                                            <Route path="/terms" element={<Terms />} />
+                                            <Route path="/login" element={<Login />} />
+                                            <Route path="/signup" element={<SignUp />} />
+                                            <Route path="/forgot" element={<Forgot />} />
+                                            <Route
+                                                path="/reset-password/:token"
+                                                element={<Reset />}
+                                            />
+                                            <Route path="/feedback" element={<Feedback />} />
+                                            {/* Allow nested routes within Docs */}
+                                            <Route path="/docs/*" element={<Docs />} />
 
-                                        {/* Protected Routes (Require Login) */}
-                                        <Route element={<ProtectedRoute />}>
-                                            <Route path="/profile" element={<Profile />} />
-                                            <Route path="/dashboard" element={<Dashboard />} />
-                                            {/* Add other general protected routes here as needed */}
-                                        </Route>
+                                            {/* Protected Routes (Require Login) */}
+                                            <Route element={<ProtectedRoute />}>
+                                                <Route path="/profile" element={<Profile />} />
+                                                <Route path="/dashboard" element={<Dashboard />} />
+                                                {/* Add other general protected routes here as needed */}
+                                                {/* Example: <Route path="/reports" element={<ReportsList />} /> */}
+                                                {/* Example: <Route path="/report/:reportId" element={<ReportDetail />} /> */}
+                                            </Route>
 
-                                        {/* Admin Protected Route (Require Login + Admin Role) */}
-                                        <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
-                                            <Route path="/admin" element={<Admin />} />
-                                        </Route>
+                                            {/* Admin Protected Route (Require Login + Admin Role) */}
+                                            <Route
+                                                element={
+                                                    <ProtectedRoute allowedRoles={['admin']} />
+                                                }
+                                            >
+                                                {/* Allow nested routes within Admin */}
+                                                <Route path="/admin/*" element={<Admin />} />
+                                            </Route>
 
-                                        {/* Fallback Route - Redirects unknown paths to Landing */}
-                                        <Route path="*" element={<Navigate to="/" replace />} />
-                                    </Routes>
-                                </Container>
+                                            {/* Fallback Route - Redirects unknown paths to Landing */}
+                                            {/* Consider a dedicated 404 component instead? */}
+                                            <Route path="*" element={<Navigate to="/" replace />} />
+                                        </Routes>
+                                    </Container>
+                                </Box>
                                 <BottomNavigationBar />
                             </Box>
                         </Router>

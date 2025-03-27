@@ -52,7 +52,7 @@ export const isValidUrl = (urlString) => {
     try {
         new URL(urlString);
         return true;
-    } catch (e) {
+    } catch {
         return false;
     }
 };
