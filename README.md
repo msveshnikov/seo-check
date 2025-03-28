@@ -177,11 +177,6 @@ and supports independent scaling of client and server components using Docker.
     - Implement a **Database Migration Strategy:** Manage schema changes (`models/`) reliably across
       deployments.
 
-- **Comprehensive Documentation:**
-    - Maintain up-to-date external documentation (potentially in a `docs/` folder) covering
-      architecture, setup, API usage (if offered), and contribution guidelines.
-    - Ensure the in-app documentation (`Docs.jsx`) is clear, concise, and reflects current features.
-
 # TODO
 
-- [ ] Implement API endpoint for user dashboard (`Dashboard.jsx`).
+- [ ] Implement API endpoints for user dashboard (`Dashboard.jsx`).

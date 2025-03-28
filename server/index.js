@@ -21,14 +21,16 @@ import { getTextClaude } from './claude.js';
 // Models
 import User from './models/User.js';
 import Feedback from './models/Feedback.js';
-// Potential future model: import Report from './models/Report.js';
+import Report from './models/Report.js'; // Import the Report model
 
 // Routes
 import userRoutes from './user.js';
 import adminRoutes from './admin.js';
+import searchRoutes from './search.js'; // Import search routes
+import reportRoutes from './report.js'; // Import report routes
 
 // Middleware
-import { authenticateTokenOptional } from './middleware/auth.js';
+import { authenticateTokenOptional, authenticateToken } from './middleware/auth.js';
 
 // Utilities (Example: Assuming getIpFromRequest moved to utils.js)
 // import { getIpFromRequest } from './utils.js';
@@ -67,10 +69,21 @@ const apiLimiter = rateLimit({
     message: 'Too many requests from this IP, please try again after 15 minutes'
 });
 
-// Apply rate limiter to API routes in production
+const analysisLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 50, // Limit each IP to 50 analysis requests per hour
+    message: 'Too many analysis requests from this IP, please try again after an hour.',
+    keyGenerator: (req /*, res*/) => {
+        // Use user ID if logged in, otherwise IP
+        return req.user?.id || req.ip;
+    }
+});
+
+// Apply rate limiters to API routes in production
 if (process.env.NODE_ENV === 'production') {
-    app.use('/api/', apiLimiter);
-    console.log('Rate limiting applied to /api/ routes.');
+    app.use('/api/', apiLimiter); // General API limiter
+    app.use('/api/search', analysisLimiter); // Stricter limiter for analysis
+    console.log('Rate limiting applied to API routes.');
 }
 
 // --- Database Connection ---
@@ -95,16 +108,19 @@ const generateAIResponse = async (prompt, model, temperature = 0.7) => {
             case 'gemini-2.0-pro-exp-02-05':
             case 'gemini-2.0-flash-001':
             case 'gemini-2.0-flash-thinking-exp-01-21':
+            case 'gemini-1.5-pro-latest': // Added common Gemini model
                 return await getTextGemini(prompt, model, temperature);
             case 'deepseek-reasoner':
+            case 'deepseek-coder': // Added another deepseek option
                 return await getTextDeepseek(prompt, model, temperature);
-            case 'claude-3-7-sonnet-20250219': // Example Claude model name, adjust if needed
+            case 'claude-3-5-sonnet-20240620': // Updated Claude model
             case 'claude-3-opus-20240229':
             case 'claude-3-sonnet-20240229':
             case 'claude-3-haiku-20240307':
                 return await getTextClaude(prompt, model, temperature);
-            case 'grok-2-latest':
-            case 'grok-3-mini':
+            case 'grok-2-latest': // Likely refers to a specific Grok model, adjust if needed
+            case 'grok-3-mini': // Likely refers to a specific Grok model, adjust if needed
+            case 'llama3-70b-8192': // Example Grok/Llama model
                 return await getTextGrok(prompt, model, temperature);
             default:
                 console.warn(
@@ -123,40 +139,51 @@ const generateAIResponse = async (prompt, model, temperature = 0.7) => {
 // Make dispatcher available globally or pass to routes if needed
 app.locals.generateAIResponse = generateAIResponse;
 
-// --- Usage Limit Middleware Placeholder ---
-// TODO: Adapt this for SEO analysis limits and apply to relevant routes (e.g., within search.js)
-/*
+// --- Usage Limit Middleware ---
+// Apply this middleware to routes that should be limited per user plan (e.g., analysis)
 export const checkUsageLimit = async (req, res, next) => {
-    if (!req.user) { // Only apply to logged-in users
-        return next(); // Skip for anonymous users (or apply different limits)
+    if (!req.user) {
+        // Apply limits for anonymous users based on IP if desired, or just allow
+        // For now, let anonymous users pass, relying on general IP rate limiting
+        return next();
     }
+
     try {
         const user = await User.findById(req.user.id);
         if (!user) {
+            // This shouldn't happen if authenticateToken passed, but good practice
             return res.status(401).json({ error: 'User not found' });
         }
 
-        // Example: Limit free users to 5 analyses per 24 hours
-        const isPremium = user.subscriptionStatus === 'active' || user.subscriptionStatus === 'trialing';
+        // Example: Limit free users (no active/trialing subscription) to 5 analyses per 24 hours
+        const isPremium =
+            user.subscriptionStatus === 'active' || user.subscriptionStatus === 'trialing';
         const limit = isPremium ? Infinity : 5; // Premium: unlimited, Free: 5
         const periodMs = 24 * 60 * 60 * 1000; // 24 hours
 
         const now = Date.now();
         const usageWindowStart = now - periodMs;
 
+        // Ensure analysisUsage is an array
+        user.analysisUsage = Array.isArray(user.analysisUsage) ? user.analysisUsage : [];
+
         // Filter usage records within the current window
-        user.analysisUsage = user.analysisUsage.filter(timestamp => timestamp > usageWindowStart);
+        user.analysisUsage = user.analysisUsage.filter(
+            (timestamp) => timestamp instanceof Date && timestamp.getTime() > usageWindowStart
+        );
 
         if (!isPremium && user.analysisUsage.length >= limit) {
-            const nextAvailableTime = new Date(user.analysisUsage[0] + periodMs);
+            const nextAvailableTime = user.analysisUsage[0]
+                ? new Date(user.analysisUsage[0].getTime() + periodMs)
+                : new Date(now + periodMs); // Estimate if array became empty
             return res.status(429).json({
-                error: `Daily analysis limit (${limit}) reached. Please upgrade or try again after ${nextAvailableTime.toLocaleString()}.`
+                error: `Daily analysis limit (${limit}) reached for free users. Please upgrade or try again after ${nextAvailableTime.toLocaleString()}.`
             });
         }
 
         // Record usage (only if limit check passes or user is premium)
-        user.analysisUsage.push(now);
-        await user.save();
+        // We record usage *after* successful analysis in the search route handler now.
+        // This middleware just checks the limit.
 
         next(); // Proceed if limit not reached or user is premium
     } catch (err) {
@@ -164,12 +191,13 @@ export const checkUsageLimit = async (req, res, next) => {
         next(err); // Pass error to global error handler
     }
 };
-*/
 
 // --- Mount Routers ---
 userRoutes(app); // Handles /api/user/*
 adminRoutes(app); // Handles /api/admin/*
-// searchRoutes(app); // Handles /api/search/*
+// Apply authentication and usage limits to search and report routes
+app.use('/api/search', authenticateToken, checkUsageLimit, searchRoutes); // Handles /api/search/*
+app.use('/api/reports', authenticateToken, reportRoutes); // Handles /api/reports/*
 
 // --- Specific API Endpoints ---
 
@@ -228,14 +256,25 @@ if (stripe && process.env.STRIPE_WH_SECRET) {
                     if (subscription.metadata && subscription.metadata.userEmail) {
                         userEmail = subscription.metadata.userEmail;
                     } else {
-                        const customer = await stripe.customers.retrieve(subscription.customer);
-                        if (customer.deleted) {
-                            console.log(
-                                `Customer ${subscription.customer} is deleted. Skipping user update.`
+                        // Fetch customer to get email - check if deleted first
+                        let customer;
+                        try {
+                            customer = await stripe.customers.retrieve(subscription.customer);
+                            if (customer.deleted) {
+                                console.log(
+                                    `Customer ${subscription.customer} is deleted. Skipping user update for subscription ${subscription.id}.`
+                                );
+                                break; // Exit switch case block
+                            }
+                            userEmail = customer.email;
+                        } catch (customerError) {
+                            console.error(
+                                `Error retrieving Stripe customer ${subscription.customer} for subscription ${subscription.id}:`,
+                                customerError
                             );
+                            // Decide if you should break or continue without email
                             break;
                         }
-                        userEmail = customer.email;
                     }
 
                     if (!userEmail) {
@@ -282,6 +321,7 @@ if (stripe && process.env.STRIPE_WH_SECRET) {
                     // Potentially update user record, e.g., grant access period, log payment
                     console.log(`Payment succeeded for subscription ${invoice.subscription}`);
                     // Find user by subscriptionId or customerId and update accordingly
+                    // Often, the 'customer.subscription.updated' event is sufficient
                 }
                 break;
             }
@@ -383,8 +423,8 @@ app.get('/api/docs', async (req, res) => {
 // Sitemap Endpoint
 app.get('/sitemap.xml', async (req, res) => {
     try {
-        // TODO: Fetch dynamic URLs if SEO reports have public pages
-        // const reports = await Report.find({ isPublic: true }).select('slug createdAt updatedAt'); // Example
+        // Fetch public report URLs if applicable (requires Report model changes)
+        // const reports = await Report.find({ isPublic: true }).select('slug createdAt updatedAt');
 
         const baseUrl = process.env.BASE_URL || 'https://seocheck.my'; // Use env variable or default
         const staticRoutes = [
@@ -396,8 +436,9 @@ app.get('/sitemap.xml', async (req, res) => {
             '/signup',
             '/forgot',
             // Add other static client-side routes served by React Router
-            '/profile', // Assuming '/profile' is a route
-            '/feedback' // Assuming '/feedback' is a route
+            '/profile',
+            '/feedback',
+            '/dashboard' // Add dashboard if it's a distinct page
             // '/admin' // Usually excluded from public sitemaps
         ];
 
@@ -408,9 +449,11 @@ app.get('/sitemap.xml', async (req, res) => {
             ) // Added changefreq/priority
             .join('');
 
-        // TODO: Add dynamic report URLs if applicable
+        // TODO: Add dynamic report URLs if reports have public pages
         // reports.forEach((report) => {
+        //     // Assuming reports have a 'slug' and 'updatedAt' field
         //     const lastMod = report.updatedAt || report.createdAt;
+        //     // Adjust URL structure as needed (e.g., /reports/public/:slug)
         //     urlsXml += `<url><loc>${baseUrl}/report/${report.slug}</loc><lastmod>${lastMod.toISOString().split('T')[0]}</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>`;
         // });
 
@@ -433,11 +476,12 @@ app.get('*', (req, res, next) => {
     // Avoid serving index.html for API routes or specific known file types
     if (
         req.path.startsWith('/api/') ||
-        req.path.endsWith('.xml') ||
-        req.path.endsWith('.txt') ||
-        req.path.includes('.') // Basic check for file extensions
+        req.path.startsWith('/sitemap.xml') || // Explicitly exclude sitemap
+        req.path.startsWith('/robots.txt') || // Explicitly exclude robots.txt
+        req.path.startsWith('/ads.txt') || // Explicitly exclude ads.txt
+        req.path.includes('.') // Basic check for file extensions (like .css, .js, .png)
     ) {
-        return next(); // Pass to 404 handler if not an API route handled above
+        return next(); // Pass to 404 handler if not an API route handled above or static asset
     }
 
     try {
@@ -499,10 +543,17 @@ signals.forEach((signal) => {
     process.on(signal, () => {
         console.log(`\nReceived ${signal}. Shutting down gracefully...`);
         // Close server, database connections, etc.
-        mongoose.connection.close(() => {
-            console.log('MongoDB connection closed.');
-            process.exit(0);
-        });
+        mongoose.connection
+            .close()
+            .then(() => {
+                console.log('MongoDB connection closed.');
+                process.exit(0);
+            })
+            .catch((err) => {
+                console.error('Error closing MongoDB connection:', err);
+                process.exit(1); // Exit with error if DB close fails
+            });
+
         // Add timeout for forceful shutdown if graceful fails
         setTimeout(() => {
             console.error('Could not close connections in time, forcefully shutting down');
@@ -516,7 +567,8 @@ signals.forEach((signal) => {
 const setGoogleCredentials = () => {
     const envPath = process.env.GOOGLE_APPLICATION_CREDENTIALS_PATH;
     if (envPath) {
-        const absolutePath = join(__dirname, envPath); // Assume path is relative to server dir if not absolute
+        // Check if path is absolute or relative
+        const absolutePath = envPath.startsWith('/') ? envPath : join(__dirname, envPath); // Assume path is relative to server dir if not absolute
         if (fs.existsSync(absolutePath)) {
             process.env['GOOGLE_APPLICATION_CREDENTIALS'] = absolutePath;
             console.log(`Using Google Application Credentials from env var: ${absolutePath}`);
