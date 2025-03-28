@@ -6,6 +6,35 @@ import Report from './models/Report.js';
 const router = express.Router();
 
 /**
+ * @route GET /api/reports/recent
+ * @description Fetch a small number of the most recent reports for the logged-in user
+ * @access Private (requires authentication)
+ * @queryparam {number} [limit=5] - Number of recent reports to fetch
+ */
+router.get('/recent', async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const limit = parseInt(req.query.limit, 10) || 5; // Default to 5 recent reports
+
+        if (limit < 1 || limit > 20) { // Add reasonable bounds for limit
+            return res.status(400).json({ error: 'Invalid limit parameter (must be between 1 and 20).' });
+        }
+
+        const reports = await Report.find({ userId })
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .select('_id url finalUrl overallScore analysisStatus createdAt fetchStatus errorMessage') // Concise fields, include errorMessage
+            .lean();
+
+        res.json(reports); // Return just the array of reports
+    } catch (error) {
+        console.error('Error fetching recent user reports:', error);
+        res.status(500).json({ error: 'Failed to retrieve recent reports.' });
+    }
+});
+
+
+/**
  * @route GET /api/reports
  * @description Fetch paginated reports for the logged-in user
  * @access Private (requires authentication)
@@ -29,7 +58,7 @@ router.get('/', async (req, res) => {
             .limit(limit)
             .select(
                 '_id url finalUrl overallScore analysisStatus createdAt fetchStatus errorMessage'
-            ) // Select concise fields for list view
+            ) // Select concise fields for list view, include errorMessage
             .lean(); // Use lean for performance
 
         const totalReportsQuery = Report.countDocuments({ userId });

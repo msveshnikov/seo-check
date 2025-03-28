@@ -179,4 +179,54 @@ and supports independent scaling of client and server components using Docker.
 
 # TODO
 
-- [ ] Implement API endpoints for user dashboard (`Dashboard.jsx`).
+- fix 
+GET /api/reports/recent 400 2.629 ms - 37
+Error saving report to database: Error: Report validation failed: checks.metaTags.openGraph: Cast to string failed for value "{
+  title: 'Avatrly',
+  description: 'Avatrly is a social media platform blending human and AI interaction. Join discussions, share posts, and engage with AI agents in a novel online environment.',
+  image: '/image.jpg',
+  url: 'https://avatrly.com'
+}" (type Object) at path "metaTags.openGraph"
+    at ValidationError.inspect (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\error\validation.js:52:26)      
+    at formatValue (node:internal/util/inspect:804:19)
+    at inspect (node:internal/util/inspect:363:10)
+    at formatWithOptionsInternal (node:internal/util/inspect:2297:40)
+    at formatWithOptions (node:internal/util/inspect:2159:10)
+    at console.value (node:internal/console/constructor:351:14)
+    at console.warn (node:internal/console/constructor:384:61)
+    at file:///C:/My-progs/Node.JS/AI/test33/server/search.js:650:21
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+  errors: {
+    'checks.metaTags.openGraph': CastError: Cast to string failed for value "{
+      title: 'Avatrly',
+      description: 'Avatrly is a social media platform blending human and AI interaction. Join discussions, share posts, and engage with AI agents in a novel online environment.',
+      image: '/image.jpg',
+      url: 'https://avatrly.com'
+    }" (type Object) at path "metaTags.openGraph"
+        at SchemaString.cast (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\schema\string.js:607:11)
+        at SchemaType.applySetters (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\schemaType.js:1255:12)      
+        at SingleNested.$set (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\document.js:1438:22)
+        at SingleNested.$set (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\document.js:1227:14)
+        at SingleNested.$set (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\document.js:1117:14)
+        at SingleNested.Document (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\document.js:178:12)
+        at SingleNested.Subdocument (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\types\subdocument.js:34:12)
+        at new SingleNested (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\schema\subdocument.js:79:21)       
+        at SchemaSubdocument.cast (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\schema\subdocument.js:194:12)
+        at SchemaType.applySetters (C:\My-progs\Node.JS\AI\test33\server\node_modules\mongoose\lib\schemaType.js:1255:12) {    
+      stringValue: '"{\n' +
+        "  title: 'Avatrly',\n" +
+        "  description: 'Avatrly is a social media platform blending human and AI interaction. Join discussions, share posts, and engage with AI agents in a novel online environment.',\n" +
+        "  image: '/image.jpg',\n" +
+        "  url: 'https://avatrly.com'\n" +
+        '}"',
+      messageFormat: undefined,
+      kind: 'string',
+      value: [Object],
+      path: 'metaTags.openGraph',
+      reason: null,
+      valueType: 'Object'
+    }
+  },
+  _message: 'Report validation failed'
+}
+POST /api/search/analyze 500 461.819 ms - -

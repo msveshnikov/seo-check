@@ -1,5 +1,43 @@
 import mongoose from 'mongoose';
 
+// Sub-schema for Open Graph data
+const openGraphSchema = new mongoose.Schema(
+    {
+        title: String,
+        description: String,
+        image: String,
+        url: String,
+        type: String
+    },
+    { _id: false }
+);
+
+// Sub-schema for Twitter Card data
+const twitterCardSchema = new mongoose.Schema(
+    {
+        card: String,
+        title: String,
+        description: String,
+        image: String
+    },
+    { _id: false }
+);
+
+// Sub-schema for Meta Tags
+const metaTagsSchema = new mongoose.Schema(
+    {
+        title: { value: String, length: Number },
+        description: { value: String, length: Number },
+        keywords: { value: String }, // Note: Keywords meta tag has little SEO value now
+        charset: { value: String },
+        viewport: { value: String },
+        canonical: { value: String },
+        openGraph: openGraphSchema, // Use the explicit sub-schema
+        twitterCard: twitterCardSchema // Use the explicit sub-schema
+    },
+    { _id: false }
+);
+
 // Sub-schema for the detailed analysis checks
 const reportCheckSchema = new mongoose.Schema(
     {
@@ -25,27 +63,7 @@ const reportCheckSchema = new mongoose.Schema(
             validationErrors: [String],
             error: String
         },
-        metaTags: {
-            title: { value: String, length: Number },
-            description: { value: String, length: Number },
-            keywords: { value: String }, // Note: Keywords meta tag has little SEO value now
-            charset: { value: String },
-            viewport: { value: String },
-            canonical: { value: String },
-            openGraph: {
-                title: String,
-                description: String,
-                image: String,
-                url: String,
-                type: String
-            },
-            twitterCard: {
-                card: String,
-                title: String,
-                description: String,
-                image: String
-            }
-        },
+        metaTags: metaTagsSchema, // Use the explicit meta tags schema
         headings: {
             // Using Mixed type for flexibility { h1: ['Text'], h2: ['Text'], ... }
             tags: mongoose.Schema.Types.Mixed,

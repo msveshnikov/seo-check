@@ -21,7 +21,6 @@ import { getTextClaude } from './claude.js';
 // Models
 import User from './models/User.js';
 import Feedback from './models/Feedback.js';
-import Report from './models/Report.js'; // Import the Report model
 
 // Routes
 import userRoutes from './user.js';
