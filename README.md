@@ -184,14 +184,4 @@ and supports independent scaling of client and server components using Docker.
 
 # TODO
 
-- [ ] Implement user dashboard (`Dashboard.jsx`).
-- [ ] Add project grouping functionality.
-- [ ] Integrate Core Web Vitals analysis.
-- [ ] Implement Schema markup validation.
-- [ ] Set up a job queue for asynchronous analysis.
-- [ ] Develop RBAC based on user roles.
-- [ ] Enhance the Admin panel (`Admin.jsx`) with monitoring and settings.
-- [ ] Add automated integration tests for AI services.
-- [ ] Configure CI/CD pipeline.
-- [ ] Review and optimize database indexing.
-- [ ] Create initial developer onboarding documentation.
+- [ ] Implement API endpoint for user dashboard (`Dashboard.jsx`).

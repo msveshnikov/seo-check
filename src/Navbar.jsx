@@ -27,7 +27,6 @@ export default function Navbar() {
     const bgColor = useColorModeValue('white', 'gray.800');
     const borderColor = useColorModeValue('gray.200', 'gray.700');
     const linkColor = useColorModeValue('gray.600', 'gray.200');
-    const linkHoverColor = useColorModeValue('gray.800', 'white');
 
     const handleLogout = () => {
         localStorage.removeItem('token');

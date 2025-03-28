@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
-import promBundle from 'express-prom-bundle';
 import { promises as fsPromises } from 'fs';
 import dotenv from 'dotenv';
 import Stripe from 'stripe';
@@ -27,7 +26,6 @@ import Feedback from './models/Feedback.js';
 // Routes
 import userRoutes from './user.js';
 import adminRoutes from './admin.js';
-import searchRoutes from './search.js';
 
 // Middleware
 import { authenticateTokenOptional } from './middleware/auth.js';
