@@ -47,18 +47,18 @@ const Dashboard = () => {
         try {
             const token = localStorage.getItem('token');
             if (!token) {
-                // No need to throw error here, just means user is logged out
                 navigate('/login');
                 return;
             }
-            // Assuming endpoint exists - adjust if necessary based on actual backend implementation
+            // Fetch recent reports - Adjust endpoint or params if needed
             const response = await fetch(`${API_URL}/api/reports/recent`, {
+                // Uses the /recent endpoint
                 headers: {
                     Authorization: `Bearer ${token}`
                 }
             });
             if (response.status === 401) {
-                localStorage.removeItem('token'); // Clear invalid token
+                localStorage.removeItem('token');
                 toast({
                     title: 'Session Expired',
                     description: 'Please log in again.',
@@ -67,13 +67,14 @@ const Dashboard = () => {
                     isClosable: true
                 });
                 navigate('/login');
-                return; // Stop execution after redirect
+                return;
             }
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.message || 'Failed to fetch reports');
             }
             const data = await response.json();
+            // Ensure data is always an array, even if API returns non-array on success/empty
             setReports(Array.isArray(data) ? data : []);
         } catch (err) {
             setErrorReports(err.message || 'Could not load recent reports.');
@@ -82,19 +83,17 @@ const Dashboard = () => {
         } finally {
             setIsLoadingReports(false);
         }
-    }, [user, navigate, toast]); // Added toast to dependency array
+    }, [user, navigate, toast]);
 
     useEffect(() => {
-        // Redirect to login if user context is null (e.g., after logout)
         if (!localStorage.getItem('token') && !user) {
             navigate('/login');
-        } else {
+        } else if (user) {
+            // Fetch only if user context is available
             fetchReports();
         }
-    }, [fetchReports, user, navigate]); // Added user and navigate
-
-    // Placeholder for polling analysis status if backend is async
-    // const pollAnalysisStatus = async (reportId) => { ... };
+        // If user is null but token exists, App.jsx effect handles profile fetching/redirect
+    }, [fetchReports, user, navigate]);
 
     const handleAnalysisSubmit = async (e) => {
         e.preventDefault();
@@ -110,12 +109,13 @@ const Dashboard = () => {
             return;
         }
 
+        let parsedUrl;
         try {
-            // Basic URL validation - ensure it includes a protocol
-            const parsedUrl = new URL(trimmedUrl);
+            parsedUrl = new URL(trimmedUrl);
             if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
                 throw new Error('URL must start with http:// or https://');
             }
+            // Optional: Add more validation like checking for valid hostname if needed
         } catch (err) {
             toast({
                 title: 'Invalid URL',
@@ -133,7 +133,7 @@ const Dashboard = () => {
         setAnalysisProgress(5);
         toast({
             title: 'Starting Analysis',
-            description: `Analyzing ${trimmedUrl}... This may take some time.`,
+            description: `Analyzing ${parsedUrl.origin}... This may take some time.`,
             status: 'info',
             duration: 5000,
             isClosable: true
@@ -143,19 +143,16 @@ const Dashboard = () => {
             const token = localStorage.getItem('token');
             if (!token) {
                 navigate('/login');
-                // No need to throw error here, navigation handles it
                 return;
             }
 
-            // Using '/api/search/analyze' as defined in server/search.js
-            // Assuming server/index.js mounts the search router at /api/search
             const response = await fetch(`${API_URL}/api/search/analyze`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify({ url: trimmedUrl })
+                body: JSON.stringify({ url: trimmedUrl }) // Send the original trimmed URL
             });
 
             if (response.status === 401) {
@@ -168,73 +165,76 @@ const Dashboard = () => {
                     isClosable: true
                 });
                 navigate('/login');
-                return; // Stop execution
+                return;
             }
 
             if (response.status === 429) {
-                // Handle rate limiting specifically
                 const errorData = await response
                     .json()
                     .catch(() => ({ message: 'Rate limit exceeded.' }));
                 throw new Error(errorData.message || 'Too many requests. Please try again later.');
             }
 
+            const result = await response.json(); // Attempt to parse JSON regardless of status code first
+
             if (!response.ok) {
-                const errorData = await response
-                    .json()
-                    .catch(() => ({ message: `HTTP error! Status: ${response.status}` }));
-                throw new Error(errorData.message || `Analysis request failed.`);
+                // Use parsed error message if available, otherwise generate one
+                throw new Error(
+                    result.message ||
+                        result.error ||
+                        `Analysis request failed. Status: ${response.status}`
+                );
             }
 
-            const result = await response.json();
+            // Handle successful response (sync or async confirmation)
+            if (
+                result._id ||
+                (result.url && result.checks) ||
+                (result.reportId && result.status === 'pending')
+            ) {
+                const reportUrl = result.url || result.finalUrl || trimmedUrl;
+                const isAsync = result.reportId && result.status === 'pending';
 
-            // Handle different response structures (sync/async/detailed report)
-            // Assuming a successful response returns the report object directly or an ID for polling
-            if (result._id || (result.url && result.checks)) {
-                // Sync path or fast async returning full report
                 toast({
-                    title: 'Analysis Complete',
-                    description: `Analysis for ${result.url || trimmedUrl} finished.`,
-                    status: 'success',
+                    title: isAsync ? 'Analysis Queued' : 'Analysis Complete',
+                    description: isAsync
+                        ? `Analysis for ${reportUrl} is processing.`
+                        : `Analysis for ${reportUrl} finished.`,
+                    status: isAsync ? 'info' : 'success',
                     duration: 4000,
                     isClosable: true
                 });
+
                 setUrlToAnalyze('');
-                fetchReports(); // Refresh list to include the new report
-                setAnalysisStatus('Analysis complete. Refreshing list...');
-                setAnalysisProgress(100);
-                setTimeout(() => {
-                    setAnalysisStatus('');
-                    setAnalysisProgress(0);
-                    setIsAnalyzing(false);
-                }, 3000);
-                // Optionally navigate: navigate(`/report/${result._id}`);
-            } else if (result.reportId && result.status === 'pending') {
-                // Async path (explicitly indicated by backend)
-                toast({
-                    title: 'Analysis Queued',
-                    description: 'Your analysis request is processing in the background.',
-                    status: 'info', // Use info for queued status
-                    duration: 4000,
-                    isClosable: true
-                });
-                setUrlToAnalyze('');
-                fetchReports(); // Refresh list optimistically (might show pending status)
-                setAnalysisStatus('Analysis queued. Refreshing list...');
-                setAnalysisProgress(10);
-                // pollAnalysisStatus(result.reportId); // Start polling if implemented
-                setTimeout(() => {
-                    setAnalysisStatus('');
-                    setAnalysisProgress(0);
-                    setIsAnalyzing(false); // Re-enable button after delay
-                }, 5000);
+                fetchReports(); // Refresh the list
+                setAnalysisStatus(
+                    isAsync
+                        ? 'Analysis queued. Refreshing list...'
+                        : 'Analysis complete. Refreshing list...'
+                );
+                setAnalysisProgress(isAsync ? 10 : 100); // Show minimal progress for async
+
+                // Reset UI state after a delay
+                setTimeout(
+                    () => {
+                        setAnalysisStatus('');
+                        setAnalysisProgress(0);
+                        setIsAnalyzing(false);
+                        // Optionally navigate to the report page if sync and _id is available
+                        // if (!isAsync && result._id) {
+                        //     navigate(`/report/${result._id}`);
+                        // }
+                    },
+                    isAsync ? 5000 : 3000
+                ); // Longer delay for async to let user see queue message
             } else {
-                // Fallback for unexpected success response
-                console.warn('Received unexpected successful response:', result);
+                // Handle unexpected successful response structure
+                console.warn('Received unexpected successful analysis response:', result);
                 toast({
                     title: 'Analysis Submitted',
-                    description: 'Request received, refreshing list.',
-                    status: 'success',
+                    description:
+                        'Request received, but response format was unexpected. Refreshing list.',
+                    status: 'warning', // Use warning for unexpected format
                     duration: 4000,
                     isClosable: true
                 });
@@ -257,17 +257,17 @@ const Dashboard = () => {
                 duration: 5000,
                 isClosable: true
             });
-            setAnalysisStatus('Analysis failed.');
-            setAnalysisProgress(0);
-            setIsAnalyzing(false); // Re-enable button on failure
+            setAnalysisStatus(`Analysis failed: ${error.message}`);
+            setAnalysisProgress(0); // Reset progress on failure
+            // Keep isAnalyzing true briefly so user sees the error message with progress bar at 0
+            setTimeout(() => setIsAnalyzing(false), 1500);
         }
     };
 
-    // Determine overall score color
     const getScoreColor = (score) => {
         if (score === null || score === undefined) return 'gray.500';
-        if (score > 75) return 'green.500';
-        if (score > 50) return 'orange.500';
+        if (score >= 80) return 'green.500'; // Adjusted thresholds slightly
+        if (score >= 50) return 'orange.500';
         return 'red.500';
     };
 
@@ -281,7 +281,7 @@ const Dashboard = () => {
                     Welcome back{user?.firstName ? `, ${user.firstName}` : ''}!
                 </Text>
 
-                <Card variant="outline" shadow="sm">
+                <Card variant="outline" shadow="sm" data-testid="analysis-form-card">
                     <CardHeader>
                         <Heading size="md">Analyze a Website&apos;s SEO</Heading>
                     </CardHeader>
@@ -298,6 +298,7 @@ const Dashboard = () => {
                                         onChange={(e) => setUrlToAnalyze(e.target.value)}
                                         disabled={isAnalyzing}
                                         size="lg"
+                                        data-testid="url-input"
                                     />
                                 </FormControl>
                                 <Button
@@ -308,18 +309,24 @@ const Dashboard = () => {
                                     width="full"
                                     size="lg"
                                     disabled={isAnalyzing}
+                                    data-testid="analyze-button"
                                 >
                                     Analyze SEO
                                 </Button>
-                                {isAnalyzing && analysisProgress > 0 && (
+                                {isAnalyzing && (
                                     <Box w="full" mt={2}>
                                         <Progress
                                             value={analysisProgress}
                                             size="sm"
                                             colorScheme="primary"
-                                            isAnimated={analysisProgress < 100}
-                                            hasStripe={analysisProgress < 100}
+                                            isAnimated={
+                                                analysisProgress < 100 && analysisProgress > 0
+                                            }
+                                            hasStripe={
+                                                analysisProgress < 100 && analysisProgress > 0
+                                            }
                                             borderRadius="md"
+                                            data-testid="analysis-progress"
                                         />
                                         {analysisStatus && (
                                             <Text
@@ -327,6 +334,7 @@ const Dashboard = () => {
                                                 color="gray.600"
                                                 mt={1}
                                                 textAlign="center"
+                                                data-testid="analysis-status"
                                             >
                                                 {analysisStatus}
                                             </Text>
@@ -343,23 +351,38 @@ const Dashboard = () => {
                         Recent Analyses
                     </Heading>
                     {isLoadingReports ? (
-                        <Center minH="150px">
+                        <Center minH="150px" data-testid="reports-loading">
                             <Spinner size="xl" color="primary.500" thickness="4px" />
                         </Center>
                     ) : errorReports ? (
-                        <Alert status="error" variant="subtle" borderRadius="md">
+                        <Alert
+                            status="error"
+                            variant="subtle"
+                            borderRadius="md"
+                            data-testid="reports-error"
+                        >
                             <AlertIcon />
                             <Text>{errorReports}</Text>
                         </Alert>
                     ) : reports.length === 0 ? (
-                        <Card variant="outline" p={5} textAlign="center" bg="background.100">
+                        <Card
+                            variant="outline"
+                            p={5}
+                            textAlign="center"
+                            bg="background.100"
+                            data-testid="no-reports-card"
+                        >
                             <Text color="gray.600">
                                 You haven&apos;t analyzed any websites yet. Enter a URL above to get
                                 started!
                             </Text>
                         </Card>
                     ) : (
-                        <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+                        <SimpleGrid
+                            columns={{ base: 1, md: 2, lg: 3 }}
+                            spacing={6}
+                            data-testid="reports-grid"
+                        >
                             {reports.map((report) => (
                                 <Card
                                     key={report._id}
@@ -367,21 +390,27 @@ const Dashboard = () => {
                                     shadow="sm"
                                     _hover={{ shadow: 'md', borderColor: 'primary.500' }}
                                     transition="all 0.2s ease-in-out"
+                                    data-testid={`report-card-${report._id}`}
                                 >
                                     <CardHeader pb={2}>
                                         <Heading
                                             size="sm"
                                             noOfLines={1}
-                                            title={report.finalUrl || report.url || ''}
+                                            title={
+                                                report.finalUrl ||
+                                                report.url ||
+                                                `Report ${report._id}`
+                                            } // Tooltip for long URLs
                                         >
-                                            {/* Ensure '/report/:id' route exists and handles report display */}
                                             <ChakraLink
                                                 as={RouterLink}
-                                                to={`/report/${report._id}`}
+                                                to={`/report/${report._id}`} // Correct link format
                                                 color="primary.600"
                                                 fontWeight="semibold"
                                                 _hover={{ textDecoration: 'underline' }}
+                                                data-testid={`report-link-title-${report._id}`}
                                             >
+                                                {/* Display finalUrl if available, fallback to original url */}
                                                 {report.finalUrl ||
                                                     report.url ||
                                                     `Report ${report._id.slice(-6)}`}
@@ -395,10 +424,15 @@ const Dashboard = () => {
                                                 report.createdAt || Date.now()
                                             ).toLocaleDateString()}
                                         </Text>
-                                        {/* TODO: Define how overallScore is calculated and stored in Report model */}
-                                        {report.overallScore !== undefined &&
+                                        {/* Display Score or Status */}
+                                        {(report.analysisStatus === 'completed' ||
+                                            report.fetchStatus === 'success') &&
+                                        report.overallScore !== undefined &&
                                         report.overallScore !== null ? (
-                                            <Text fontWeight="medium">
+                                            <Text
+                                                fontWeight="medium"
+                                                data-testid={`report-score-${report._id}`}
+                                            >
                                                 Overall Score:{' '}
                                                 <Text
                                                     as="span"
@@ -408,39 +442,72 @@ const Dashboard = () => {
                                                     {report.overallScore}%
                                                 </Text>
                                             </Text>
-                                        ) : report.status === 'pending' ||
-                                          report.status === 'processing' ? (
-                                            <Text fontSize="sm" fontStyle="italic" color="blue.500">
+                                        ) : report.analysisStatus === 'pending' ||
+                                          report.analysisStatus === 'processing' ||
+                                          report.fetchStatus === 'pending' ? (
+                                            <Text
+                                                fontSize="sm"
+                                                fontStyle="italic"
+                                                color="blue.500"
+                                                data-testid={`report-status-processing-${report._id}`}
+                                            >
                                                 Status: Processing...
                                             </Text>
+                                        ) : report.fetchStatus === 'error' ||
+                                          report.analysisStatus === 'error' ? (
+                                            <Text
+                                                fontSize="sm"
+                                                fontStyle="italic"
+                                                color="red.500"
+                                                data-testid={`report-status-error-${report._id}`}
+                                                title={
+                                                    report.errorMessage ||
+                                                    'An error occurred during analysis'
+                                                }
+                                            >
+                                                Status: Error
+                                            </Text>
                                         ) : (
-                                            <Text fontSize="sm" fontStyle="italic" color="gray.400">
-                                                Score not available
+                                            <Text
+                                                fontSize="sm"
+                                                fontStyle="italic"
+                                                color="gray.400"
+                                                data-testid={`report-status-unknown-${report._id}`}
+                                            >
+                                                Status: Unknown
                                             </Text>
                                         )}
-                                        {/* Display specific status if not completed and score is missing */}
-                                        {report.status &&
-                                            report.status !== 'completed' &&
-                                            report.overallScore === undefined && (
+                                        {/* Display more specific status if needed */}
+                                        {report.analysisStatus &&
+                                            report.analysisStatus !== 'completed' &&
+                                            report.fetchStatus !== 'error' &&
+                                            (report.overallScore === undefined ||
+                                                report.overallScore === null) && (
                                                 <Text
                                                     fontSize="xs"
                                                     color="orange.500"
                                                     mt={1}
                                                     textTransform="capitalize"
+                                                    data-testid={`report-analysis-status-${report._id}`}
                                                 >
-                                                    Status: {report.status}
+                                                    Stage: {report.analysisStatus}
                                                 </Text>
                                             )}
+
                                         <Button
                                             as={RouterLink}
-                                            to={`/report/${report._id}`}
+                                            to={`/report/${report._id}`} // Correct link format
                                             size="sm"
                                             variant="outline"
                                             colorScheme="secondary"
                                             mt={3}
                                             width="full"
-                                            // Disable button if report is still processing heavily?
-                                            // isDisabled={report.status === 'pending' || report.status === 'processing'}
+                                            // Disable button only if fetch failed completely? Or allow viewing partial/failed reports?
+                                            isDisabled={
+                                                report.fetchStatus === 'error' &&
+                                                !report.analysisStatus
+                                            } // Example: Disable if fetch itself failed before analysis started
+                                            data-testid={`view-report-button-${report._id}`}
                                         >
                                             View Report
                                         </Button>

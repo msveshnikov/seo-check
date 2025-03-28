@@ -17,7 +17,8 @@ import { BottomNavigationBar } from './BottomNavigationBar';
 const Admin = lazy(() => import('./Admin'));
 const Feedback = lazy(() => import('./Feedback'));
 const Docs = lazy(() => import('./Docs'));
-const Dashboard = lazy(() => import('./Dashboard')); // Dashboard route is ready
+const Dashboard = lazy(() => import('./Dashboard'));
+const Report = lazy(() => import('./Report')); // Lazy load Report component
 
 // API URL Configuration
 export const API_URL = import.meta.env.DEV ? 'http://localhost:3000' : 'https://seocheck.pro';
@@ -222,9 +223,12 @@ function App() {
                                             <Route element={<ProtectedRoute />}>
                                                 <Route path="/profile" element={<Profile />} />
                                                 <Route path="/dashboard" element={<Dashboard />} />
+                                                <Route
+                                                    path="/report/:reportId"
+                                                    element={<Report />}
+                                                />
                                                 {/* Add other general protected routes here as needed */}
                                                 {/* Example: <Route path="/reports" element={<ReportsList />} /> */}
-                                                {/* Example: <Route path="/report/:reportId" element={<ReportDetail />} /> */}
                                             </Route>
 
                                             {/* Admin Protected Route (Require Login + Admin Role) */}

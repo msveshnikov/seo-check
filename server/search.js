@@ -3,7 +3,6 @@ import { Router } from 'express';
 import fetch from 'node-fetch'; // Assuming node-fetch or using built-in fetch if Node >= 18
 import { authenticateToken } from './middleware/auth.js';
 import Report from './models/Report.js'; // Import the Report model
-import User from './models/User.js'; // Needed for usage limit check (future)
 
 // --- Constants ---
 
@@ -164,7 +163,7 @@ const checkSitemap = async (siteUrl, robotsAnalysis) => {
                     // Resolve relative URLs from robots.txt
                     const sitemapUrl = new URL(match[1].trim(), siteUrl.origin).toString();
                     potentialSitemapUrls.add(sitemapUrl);
-                } catch (e) {
+                } catch {
                     console.warn(`Invalid sitemap URL found in robots.txt: ${match[1].trim()}`);
                 }
             }
@@ -467,7 +466,7 @@ export const performSeoAnalysis = async (url) => {
             initialUrl = 'http://' + initialUrl; // Default to http
         }
         new URL(initialUrl); // Validate if it parses
-    } catch (e) {
+    } catch {
         return {
             url: url, // Return original user input
             error: 'Invalid URL format provided.',
@@ -589,7 +588,7 @@ router.post('/analyze', authenticateToken, async (req, res) => {
             validatedUrl = url;
         }
         new URL(validatedUrl); // Check if it parses
-    } catch (e) {
+    } catch {
         return res.status(400).json({ error: 'Invalid URL format' });
     }
 
